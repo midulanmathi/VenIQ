@@ -1,0 +1,19 @@
+flask==3.0.3
+flask-cors==4.0.1
+python-dotenv==1.0.1
+
+# Mood detection
+google-generativeai==0.7.2
+deepface==0.0.93         # optional: local facial emotion recognition
+opencv-python==4.10.0.84 # optional: webcam/image processing
+transformers==4.41.2     # optional: text sentiment fallback (distilbert)
+
+# Music transformation
+librosa==0.10.2
+pydub==0.25.1
+soundfile==0.12.1
+numpy==1.26.4
+
+# Testing
+pytest==8.2.2
+pytest-flask==1.3.0

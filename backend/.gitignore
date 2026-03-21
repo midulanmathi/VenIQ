@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+audio/output/*.mp3
+audio/output/*.wav
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
