@@ -86,6 +86,7 @@ export default function LiveSessionPage() {
     const [mpPersonCount,     setMpPersonCount]     = useState<number | null>(null);
     const [mpHandsRaised,     setMpHandsRaised]     = useState<number>(0);
     const [mpReady,           setMpReady]           = useState(false);
+    const [showMesh,          setShowMesh]          = useState(true);
 
     // Derived: explicit lock takes priority over auto-detected mode
     const effectiveMode = appMode === "auto" ? (detectedMode ?? "club") : appMode;
@@ -488,7 +489,7 @@ export default function LiveSessionPage() {
                             {/* MediaPipe overlay — drawn in real-time via rAF */}
                             <canvas ref={overlayRef}
                                 className="absolute inset-0 w-full h-full pointer-events-none"
-                                style={{ mixBlendMode: "screen", opacity: mpReady ? 1 : 0, transition: "opacity 0.5s" }} />
+                                style={{ mixBlendMode: "screen", opacity: (mpReady && showMesh) ? 1 : 0, transition: "opacity 0.5s" }} />
                             {!isSessionActive && (
                                 <div className="text-center text-white/20 flex flex-col items-center gap-4 relative z-10 p-12">
                                     <Camera className="w-12 h-12 mb-2 opacity-50" />
@@ -502,14 +503,19 @@ export default function LiveSessionPage() {
                                         <span className="text-xs text-white/60 font-medium">Gemini Vision</span>
                                     </div>
                                     {mpReady && (
-                                        <div className={`bg-black/60 backdrop-blur-md border px-4 py-2 rounded-full flex items-center gap-2 ${
-                                            isStudy ? "border-blue-500/30" : "border-pink-500/30"
-                                        }`}>
-                                            <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${isStudy ? "bg-blue-400" : "bg-pink-400"}`} />
+                                        <button
+                                            onClick={() => setShowMesh(v => !v)}
+                                            className={`bg-black/60 backdrop-blur-md border px-4 py-2 rounded-full flex items-center gap-2 transition-all ${
+                                                isStudy ? "border-blue-500/30 hover:border-blue-500/60" : "border-pink-500/30 hover:border-pink-500/60"
+                                            } ${!showMesh ? "opacity-50" : ""}`}
+                                        >
+                                            <div className={`w-1.5 h-1.5 rounded-full ${showMesh ? "animate-pulse" : ""} ${isStudy ? "bg-blue-400" : "bg-pink-400"}`} />
                                             <span className={`text-xs font-medium ${isStudy ? "text-blue-300" : "text-pink-300"}`}>
-                                                {isStudy ? "Face Mesh" : `Pose · ${mpPersonCount ?? 0} person${(mpPersonCount ?? 0) !== 1 ? "s" : ""}${mpHandsRaised > 0 ? ` · ✋ ${mpHandsRaised}` : ""}`}
+                                                {isStudy
+                                                    ? (showMesh ? "Face Mesh ON" : "Face Mesh OFF")
+                                                    : `${showMesh ? "Pose ON" : "Pose OFF"} · ${mpPersonCount ?? 0}p${mpHandsRaised > 0 ? ` · ✋ ${mpHandsRaised}` : ""}`}
                                             </span>
-                                        </div>
+                                        </button>
                                     )}
                                 </div>
                             )}
