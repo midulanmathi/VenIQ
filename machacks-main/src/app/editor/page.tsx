@@ -60,7 +60,9 @@ export default function LiveSessionPage() {
     const ytReadyRef     = useRef(false);
     const pendingVideoId = useRef<string | null>(null);
 
-    const [appMode,         setAppMode]         = useState<"club" | "study">("club");
+    // "auto" = Gemini decides each frame; "club"/"study" = user locked it
+    const [appMode,         setAppMode]         = useState<"auto" | "club" | "study">("auto");
+    const [detectedMode,    setDetectedMode]    = useState<"club" | "study" | null>(null);
     const [isSessionActive, setIsSessionActive] = useState(false);
     const [stream,          setStream]          = useState<MediaStream | null>(null);
     const [isAnalyzing,     setIsAnalyzing]     = useState(false);
@@ -157,6 +159,7 @@ export default function LiveSessionPage() {
             setCurrentEnergy(result.energy);
             setLiveDescription(result.description || "No description returned.");
             if (result.coach_message) setCoachMessage(result.coach_message);
+            if (appMode === "auto" && result.detected_mode) setDetectedMode(result.detected_mode);
             setEventLog(prev => [result, ...prev].slice(0, 50));
             if (result.changed && result.track) {
                 await loadTrack(result.track);
@@ -199,6 +202,7 @@ export default function LiveSessionPage() {
         setQueue([]);
         setOverrideLock(null);
         setCoachMessage(null);
+        setDetectedMode(null);
     };
 
     const forceMode = async (mode: "party" | "calm") => {
@@ -241,8 +245,10 @@ export default function LiveSessionPage() {
     }, [stream]);
 
     // ── Derived UI ────────────────────────────────────────────────────────────
-    const emotionCfg = EMOTION_CONFIG[currentMood] ?? { emoji: "🎵", color: "text-white/60", label: currentMood };
-    const isStudy    = appMode === "study";
+    const emotionCfg   = EMOTION_CONFIG[currentMood] ?? { emoji: "🎵", color: "text-white/60", label: currentMood };
+    // effective mode: explicit lock takes priority, otherwise use auto-detected
+    const effectiveMode = appMode === "auto" ? (detectedMode ?? "club") : appMode;
+    const isStudy       = effectiveMode === "study";
 
     const energy = currentEnergy ?? 0;
     const eqBars = Array.from({ length: 12 }, (_, i) => {
@@ -268,31 +274,45 @@ export default function LiveSessionPage() {
                     </p>
                 </div>
                 <div className="flex gap-3 flex-wrap items-center">
-                    {/* Mode toggle — only before session starts */}
-                    {!isSessionActive && (
-                        <div className="flex bg-white/5 border border-white/10 rounded-xl p-1 gap-1">
-                            <button
-                                onClick={() => setAppMode("club")}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
-                                    appMode === "club"
-                                    ? "bg-pink-500/20 text-pink-300"
-                                    : "text-white/40 hover:text-white/70"
-                                }`}
-                            >
-                                <Users className="w-4 h-4" /> Club Mode
-                            </button>
-                            <button
-                                onClick={() => setAppMode("study")}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
-                                    appMode === "study"
-                                    ? "bg-blue-500/20 text-blue-300"
-                                    : "text-white/40 hover:text-white/70"
-                                }`}
-                            >
-                                <BookOpen className="w-4 h-4" /> Lock In
-                            </button>
-                        </div>
-                    )}
+                    {/* Mode selector — always visible, auto is default */}
+                    <div className="flex bg-white/5 border border-white/10 rounded-xl p-1 gap-1">
+                        <button
+                            onClick={() => setAppMode("auto")}
+                            disabled={isSessionActive && appMode !== "auto"}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                                appMode === "auto"
+                                ? "bg-white/15 text-white"
+                                : "text-white/40 hover:text-white/70"
+                            }`}
+                        >
+                            {appMode === "auto" && detectedMode
+                                ? <>{detectedMode === "study" ? <BookOpen className="w-4 h-4" /> : <Users className="w-4 h-4" />} Auto: {detectedMode === "study" ? "Lock In" : "Club"}</>
+                                : <>✦ Auto</>
+                            }
+                        </button>
+                        <button
+                            onClick={() => setAppMode(appMode === "club" ? "auto" : "club")}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                                appMode === "club"
+                                ? "bg-pink-500/20 text-pink-300"
+                                : "text-white/40 hover:text-white/70"
+                            }`}
+                        >
+                            <Users className="w-4 h-4" />
+                            {appMode === "club" ? <><Lock className="w-3 h-3" /> Club</> : "Club"}
+                        </button>
+                        <button
+                            onClick={() => setAppMode(appMode === "study" ? "auto" : "study")}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                                appMode === "study"
+                                ? "bg-blue-500/20 text-blue-300"
+                                : "text-white/40 hover:text-white/70"
+                            }`}
+                        >
+                            <BookOpen className="w-4 h-4" />
+                            {appMode === "study" ? <><Lock className="w-3 h-3" /> Lock In</> : "Lock In"}
+                        </button>
+                    </div>
 
                     {isSessionActive && !isStudy && (
                         <>
@@ -444,10 +464,16 @@ export default function LiveSessionPage() {
                             <div className="space-y-2">
                                 <div className="flex justify-between text-sm">
                                     <span className="text-white/60">Mode</span>
-                                    <Badge className={isStudy
-                                        ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                                        : "bg-pink-500/10 text-pink-400 border-pink-500/20"}>
-                                        {isStudy ? "🔒 Lock In" : "🎵 Club"}
+                                    <Badge className={
+                                        appMode === "auto"
+                                            ? "bg-white/10 text-white/60 border-white/10"
+                                            : isStudy
+                                            ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                                            : "bg-pink-500/10 text-pink-400 border-pink-500/20"
+                                    }>
+                                        {appMode === "auto"
+                                            ? `✦ Auto${detectedMode ? ` → ${detectedMode === "study" ? "Lock In" : "Club"}` : ""}`
+                                            : isStudy ? "🔒 Lock In" : "🎵 Club"}
                                     </Badge>
                                 </div>
                                 <div className="flex justify-between text-sm">

@@ -85,6 +85,94 @@ _CALM_SIGNALS = [
 ]
 
 
+def analyze_auto(image_b64: str) -> dict:
+    """
+    Auto mode: single Gemini call that detects scene type (1 person vs group)
+    and returns the appropriate analysis fields.
+
+    Returns all standard fields plus:
+        "detected_mode": "study" | "club"
+    """
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    if not api_key:
+        result = describe_crowd(image_b64)
+        result["detected_mode"] = "club"
+        return result
+
+    try:
+        import google.generativeai as genai
+
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        image_bytes = base64.b64decode(image_b64)
+
+        prompt = """Analyze this webcam frame. First decide: is this ONE person working/studying alone, or a GROUP of people?
+
+Return ONLY a valid JSON object. Use one of these two schemas:
+
+If ONE person alone:
+{
+  "scene_type": "study",
+  "description": "1-2 sentences describing posture, expression, body language",
+  "emotion": "focused" | "happy" | "tired" | "stressed",
+  "energy": <integer 1-10>,
+  "confidence": <float 0.0-1.0>,
+  "coach_message": "1-2 sentence motivational or calming message for them"
+}
+
+If a GROUP (2+ people):
+{
+  "scene_type": "club",
+  "description": "1-2 sentences describing what the group is doing, body language, energy",
+  "sentiment": "party" | "calm",
+  "energy": <integer 1-10>,
+  "confidence": <float 0.0-1.0>
+}
+
+Emotion guide (study): focused=working steadily, happy=smiling/positive, tired=slumped/yawning, stressed=tense/overwhelmed
+Energy guide (club): 1=very quiet/still, 10=dancing/cheering/highly energetic
+
+Return only the JSON. No markdown."""
+
+        response = model.generate_content(
+            [{"mime_type": "image/jpeg", "data": image_bytes}, prompt]
+        )
+
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text[text.index("{"):]
+            text = text[:text.rindex("}") + 1]
+
+        data = json.loads(text)
+        scene_type = data.get("scene_type", "club")
+
+        if scene_type == "study":
+            emotion = data.get("emotion", "focused")
+            return {
+                "description":   data.get("description", ""),
+                "energy":        int(data.get("energy", 5)),
+                "sentiment":     emotion,
+                "confidence":    float(data.get("confidence", 0.7)),
+                "coach_message": data.get("coach_message") or _fallback_message(emotion),
+                "detected_mode": "study",
+            }
+        else:
+            return {
+                "description":   data.get("description", ""),
+                "energy":        int(data.get("energy", 5)),
+                "sentiment":     data.get("sentiment", "calm"),
+                "confidence":    float(data.get("confidence", 0.7)),
+                "coach_message": None,
+                "detected_mode": "club",
+            }
+
+    except Exception as e:
+        result = describe_crowd(image_b64)
+        result["detected_mode"] = "club"
+        result["coach_message"] = None
+        return result
+
+
 def describe_individual(image_b64: str) -> dict:
     """
     Lock In mode: analyze a single person's emotional/focus state via Gemini.

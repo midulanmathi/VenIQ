@@ -18,7 +18,7 @@ DELETE /api/crowd/history
 import time
 from datetime import datetime
 from flask import Blueprint, request, jsonify, current_app
-from app.services.crowd import describe_crowd, describe_individual
+from app.services.crowd import describe_crowd, describe_individual, analyze_auto
 from app.services.songs_db import get_song
 from app.services.youtube import search_youtube
 from app.routes.playback import set_current_track
@@ -48,7 +48,9 @@ def analyze():
     if not image_b64:
         return jsonify({"error": "image_base64 is required"}), 400
 
-    if mode == "study":
+    if mode == "auto":
+        scene = analyze_auto(image_b64)
+    elif mode == "study":
         scene = describe_individual(image_b64)
     else:
         scene = describe_crowd(image_b64)
@@ -58,6 +60,7 @@ def analyze():
     confidence    = scene["confidence"]
     description   = scene["description"]
     coach_message = scene.get("coach_message")
+    detected_mode = scene.get("detected_mode")   # only set in auto mode
     threshold     = current_app.config.get("ENERGY_CHANGE_THRESHOLD", 2)
     timestamp     = datetime.utcnow().isoformat() + "Z"
 
@@ -80,6 +83,7 @@ def analyze():
             "confidence":    confidence,
             "description":   description,
             "coach_message": coach_message,
+            "detected_mode": detected_mode,
             "track":         None,
         }
         _history.append(entry)
@@ -89,10 +93,11 @@ def analyze():
     _state["sentiment"]       = new_sentiment
     _state["last_changed_at"] = time.time()
 
-    # In study mode map all emotions to appropriate song sentiments
+    # In study mode (or auto-detected study) map emotions to song sentiments
+    effective_mode = detected_mode if mode == "auto" and detected_mode else mode
     song_sentiment = new_sentiment
     song_energy    = new_energy
-    if mode == "study":
+    if effective_mode == "study":
         if new_sentiment in ("focused", "happy"):
             song_sentiment = new_sentiment
         elif new_sentiment == "tired":
@@ -134,6 +139,7 @@ def analyze():
         "confidence":    confidence,
         "description":   description,
         "coach_message": coach_message,
+        "detected_mode": detected_mode,
         "track":         track,
     }
     if not track:
