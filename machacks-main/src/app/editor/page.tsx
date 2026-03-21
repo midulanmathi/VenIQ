@@ -86,6 +86,10 @@ export default function LiveSessionPage() {
     const [mpPersonCount,     setMpPersonCount]     = useState<number | null>(null);
     const [mpHandsRaised,     setMpHandsRaised]     = useState<number>(0);
     const [mpReady,           setMpReady]           = useState(false);
+
+    // Derived: explicit lock takes priority over auto-detected mode
+    const effectiveMode = appMode === "auto" ? (detectedMode ?? "club") : appMode;
+    const isStudy       = effectiveMode === "study";
     const [liveDescription,   setLiveDescription]   = useState("Awaiting session start...");
     const [eventLog,          setEventLog]          = useState<AnalysisEntry[]>([]);
     const [queue,             setQueue]             = useState<Track[]>([]);
@@ -325,9 +329,6 @@ export default function LiveSessionPage() {
 
     // ── Derived UI ────────────────────────────────────────────────────────────
     const emotionCfg   = EMOTION_CONFIG[currentMood] ?? { emoji: "🎵", color: "text-white/60", label: currentMood };
-    // effective mode: explicit lock takes priority, otherwise use auto-detected
-    const effectiveMode = appMode === "auto" ? (detectedMode ?? "club") : appMode;
-    const isStudy       = effectiveMode === "study";
 
     const energy = currentEnergy ?? 0;
     const eqBars = Array.from({ length: 12 }, (_, i) => {
