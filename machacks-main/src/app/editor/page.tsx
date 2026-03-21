@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Camera, Play, Square, Activity, HeartPulse, BrainCircuit, Mic, Music2, SkipForward, ListMusic } from "lucide-react";
+import { Camera, Play, Square, Activity, HeartPulse, BrainCircuit, Mic, Music2, SkipForward, ListMusic, Lock, Unlock } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -53,6 +53,7 @@ export default function LiveSessionPage() {
     const [stream,          setStream]          = useState<MediaStream | null>(null);
     const [isAnalyzing,     setIsAnalyzing]     = useState(false);
     const [isOverriding,    setIsOverriding]    = useState(false);
+    const [overrideLock,    setOverrideLock]    = useState<"party" | "calm" | null>(null);
 
     const [currentMood,       setCurrentMood]       = useState<string>("None");
     const [currentConfidence, setCurrentConfidence] = useState<number | null>(null);
@@ -135,6 +136,7 @@ export default function LiveSessionPage() {
     }, []);
 
     const runAnalysis = useCallback(async () => {
+        if (overrideLock) return;   // algorithm paused while override is active
         const frame = captureFrame();
         if (!frame) return;
         setIsAnalyzing(true);
@@ -155,7 +157,7 @@ export default function LiveSessionPage() {
         } finally {
             setIsAnalyzing(false);
         }
-    }, [captureFrame, loadTrack]);
+    }, [captureFrame, loadTrack, overrideLock]);
 
     // ── Session controls ──────────────────────────────────────────────────────
     const startSession = async () => {
@@ -184,6 +186,7 @@ export default function LiveSessionPage() {
         setLiveDescription("Session ended. Camera offline.");
         setCurrentMood("None");
         setQueue([]);
+        setOverrideLock(null);
     };
 
     const forceMode = async (mode: "party" | "calm") => {
@@ -194,11 +197,17 @@ export default function LiveSessionPage() {
                 await loadTrack(track);
                 setCurrentMood(mode);
                 setCurrentEnergy(mode === "party" ? 8 : 3);
-                setLiveDescription(`DJ override → ${mode} mode`);
+                setLiveDescription(`Override active → ${mode} mode. Algorithm paused.`);
+                setOverrideLock(mode);
             }
         } finally {
             setIsOverriding(false);
         }
+    };
+
+    const clearOverride = () => {
+        setOverrideLock(null);
+        setLiveDescription("Override cleared. Algorithm resumed.");
     };
 
     useEffect(() => {
@@ -244,14 +253,28 @@ export default function LiveSessionPage() {
                 <div className="flex gap-3 flex-wrap">
                     {isSessionActive && (
                         <>
-                            <Button onClick={() => forceMode("calm")} disabled={isOverriding}
-                                className="bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 border border-indigo-500/20 rounded-xl h-12 px-5 font-bold">
-                                Force Calm
-                            </Button>
-                            <Button onClick={() => forceMode("party")} disabled={isOverriding}
-                                className="bg-pink-500/10 text-pink-300 hover:bg-pink-500/20 border border-pink-500/20 rounded-xl h-12 px-5 font-bold">
-                                Force Party
-                            </Button>
+                            {overrideLock ? (
+                                <Button onClick={clearOverride}
+                                    className={`rounded-xl h-12 px-5 font-bold border animate-pulse ${
+                                        overrideLock === "party"
+                                        ? "bg-pink-500/20 text-pink-300 border-pink-500/40 hover:bg-pink-500/30"
+                                        : "bg-indigo-500/20 text-indigo-300 border-indigo-500/40 hover:bg-indigo-500/30"
+                                    }`}>
+                                    <Lock className="w-4 h-4 mr-2" />
+                                    Override ON: {overrideLock} — click to resume
+                                </Button>
+                            ) : (
+                                <>
+                                    <Button onClick={() => forceMode("calm")} disabled={isOverriding}
+                                        className="bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 border border-indigo-500/20 rounded-xl h-12 px-5 font-bold">
+                                        <Unlock className="w-4 h-4 mr-2" /> Force Calm
+                                    </Button>
+                                    <Button onClick={() => forceMode("party")} disabled={isOverriding}
+                                        className="bg-pink-500/10 text-pink-300 hover:bg-pink-500/20 border border-pink-500/20 rounded-xl h-12 px-5 font-bold">
+                                        <Unlock className="w-4 h-4 mr-2" /> Force Party
+                                    </Button>
+                                </>
+                            )}
                         </>
                     )}
                     {!isSessionActive ? (
@@ -340,10 +363,14 @@ export default function LiveSessionPage() {
                             <div className="space-y-2">
                                 <div className="flex justify-between text-sm">
                                     <span className="text-white/60">Music State</span>
-                                    {isSessionActive ? (
-                                        <Badge className="bg-indigo-500/10 text-indigo-400 border-indigo-500/20">Adapting</Badge>
-                                    ) : (
+                                    {!isSessionActive ? (
                                         <Badge className="bg-white/5 text-white/40 border-white/10">Awaiting Data</Badge>
+                                    ) : overrideLock ? (
+                                        <Badge className={overrideLock === "party" ? "bg-pink-500/20 text-pink-300 border-pink-500/30" : "bg-indigo-500/20 text-indigo-300 border-indigo-500/30"}>
+                                            <Lock className="w-3 h-3 mr-1" /> Locked: {overrideLock}
+                                        </Badge>
+                                    ) : (
+                                        <Badge className="bg-indigo-500/10 text-indigo-400 border-indigo-500/20">Adapting</Badge>
                                     )}
                                 </div>
                                 <div className="flex justify-between text-sm">
