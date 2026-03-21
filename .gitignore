@@ -16,6 +16,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# un-ignore Next.js source lib directories
+!machacks-main/src/lib/
 parts/
 sdist/
 var/
