@@ -14,7 +14,7 @@ import {
   type FaceFeatures, type PoseFeatures,
 } from "@/lib/mediapipe-analyzer";
 
-const CAPTURE_INTERVAL_MS = 7000;
+const CAPTURE_INTERVAL_MS = 3000;
 const QUEUE_PREFILL = 3;
 const FADE_SECS     = 2.5;
 
