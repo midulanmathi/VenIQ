@@ -51,12 +51,24 @@ function FeaturesSection() {
   const reduceMotion = useReducedMotion();
 
   return (
-    <section className="relative z-10 w-full border-t border-white/[0.06] bg-black py-28">
+    <section
+      id="features"
+      className="relative z-10 w-full scroll-mt-24 border-t border-white/[0.06] bg-black py-28"
+      aria-labelledby="features-heading"
+    >
       <div
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_75%_45%_at_50%_-10%,rgba(99,102,241,0.055),transparent)]"
         aria-hidden
       />
       <div className="relative mx-auto max-w-[1200px] px-6">
+        <div className="mb-14 text-center md:mb-16">
+          <p
+            id="features-heading"
+            className="text-[2.5rem] font-black uppercase leading-tight tracking-[0.35em] text-violet-300 antialiased md:text-[3rem] lg:text-[3.75rem]"
+          >
+            Features
+          </p>
+        </div>
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
           {LANDING_FEATURES.map((feat, i) => {
             const Icon = feat.icon;
@@ -159,7 +171,19 @@ export default function LandingPage() {
           <span className="font-black text-2xl tracking-tight text-white group-hover:text-indigo-200 transition-colors">SoundSmith</span>
         </Link>
         <div className="hidden md:flex items-center gap-8 text-sm font-bold uppercase tracking-widest text-white/50">
-          <span className="hover:text-white cursor-pointer transition-colors">Features</span>
+          <a
+            href="#features"
+            className="hover:text-white cursor-pointer transition-colors"
+            onClick={(e) => {
+              e.preventDefault();
+              document.getElementById("features")?.scrollIntoView({
+                behavior: "smooth",
+                block: "start",
+              });
+            }}
+          >
+            Features
+          </a>
           <span className="hover:text-white cursor-pointer transition-colors">Use Cases</span>
           <span className="hover:text-white cursor-pointer transition-colors">Pricing</span>
         </div>
