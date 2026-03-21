@@ -2,16 +2,15 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Camera, Play, Square, Activity, HeartPulse, BrainCircuit, Mic, Music2, Zap, SkipForward, ListMusic, Sparkles } from "lucide-react";
+import { Camera, Play, Square, Activity, HeartPulse, BrainCircuit, Mic, Music2, SkipForward, ListMusic } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { analyzeFrame, clearHistory, overrideSentiment, generateComposition, type AnalysisEntry, type Track, type Composition } from "@/lib/api";
-import { DJEngine } from "@/lib/dj-engine";
+import { analyzeFrame, clearHistory, overrideSentiment, type AnalysisEntry, type Track } from "@/lib/api";
 
 const CAPTURE_INTERVAL_MS = 7000;
-const QUEUE_PREFILL = 3;   // songs to pre-fetch on session start
-const FADE_SECS     = 2.5; // YouTube volume crossfade duration
+const QUEUE_PREFILL = 3;
+const FADE_SECS     = 2.5;
 
 declare global {
     interface Window {
@@ -28,14 +27,13 @@ interface YTPlayer {
     setPlaybackRate(r: number): void;
 }
 
-// Smoothly ramp YouTube volume over ms milliseconds
 function rampYTVolume(player: YTPlayer, from: number, to: number, ms: number) {
-    const steps    = 30;
-    const stepMs   = ms / steps;
-    const delta    = (to - from) / steps;
-    let   current  = from;
-    let   count    = 0;
-    const timer    = setInterval(() => {
+    const steps   = 30;
+    const stepMs  = ms / steps;
+    const delta   = (to - from) / steps;
+    let current   = from;
+    let count     = 0;
+    const timer   = setInterval(() => {
         count++;
         current += delta;
         player.setVolume(Math.max(0, Math.min(100, Math.round(current))));
@@ -44,35 +42,25 @@ function rampYTVolume(player: YTPlayer, from: number, to: number, ms: number) {
 }
 
 export default function LiveSessionPage() {
-    // ── Refs ──────────────────────────────────────────────────────────────────
     const videoRef       = useRef<HTMLVideoElement>(null);
     const canvasRef      = useRef<HTMLCanvasElement>(null);
     const intervalRef    = useRef<ReturnType<typeof setInterval> | null>(null);
     const ytPlayerRef    = useRef<YTPlayer | null>(null);
     const ytReadyRef     = useRef(false);
     const pendingVideoId = useRef<string | null>(null);
-    const djEngineRef    = useRef<DJEngine | null>(null);
-    const transitioningRef = useRef(false);
 
-    // ── State ─────────────────────────────────────────────────────────────────
     const [isSessionActive, setIsSessionActive] = useState(false);
     const [stream,          setStream]          = useState<MediaStream | null>(null);
     const [isAnalyzing,     setIsAnalyzing]     = useState(false);
     const [isOverriding,    setIsOverriding]    = useState(false);
-    const [djMode,          setDjMode]          = useState(false);
-    const [isGenerating,    setIsGenerating]    = useState(false);
 
     const [currentMood,       setCurrentMood]       = useState<string>("None");
     const [currentConfidence, setCurrentConfidence] = useState<number | null>(null);
     const [currentEnergy,     setCurrentEnergy]     = useState<number | null>(null);
     const [currentTrack,      setCurrentTrack]      = useState<Track | null>(null);
-    const [composition,       setComposition]       = useState<Composition | null>(null);
-    const [activeLayers,      setActiveLayers]      = useState<string[]>([]);
     const [liveDescription,   setLiveDescription]   = useState("Awaiting session start...");
     const [eventLog,          setEventLog]          = useState<AnalysisEntry[]>([]);
-
-    // Queue: list of upcoming tracks
-    const [queue, setQueue] = useState<Track[]>([]);
+    const [queue,             setQueue]             = useState<Track[]>([]);
 
     // ── YouTube IFrame setup ──────────────────────────────────────────────────
     useEffect(() => {
@@ -103,82 +91,36 @@ export default function LiveSessionPage() {
         };
     }, []);
 
-    // ── Load new YouTube video with crossfade ─────────────────────────────────
+    // ── Load YouTube video with crossfade ─────────────────────────────────────
     const loadYouTubeTrack = useCallback(async (videoId: string) => {
         const yt = ytPlayerRef.current;
         if (!yt || !ytReadyRef.current) { pendingVideoId.current = videoId; return; }
-
-        // Fade out → swap → fade in
         rampYTVolume(yt, 80, 0, FADE_SECS * 1000);
         await new Promise(r => setTimeout(r, FADE_SECS * 1000));
         yt.loadVideoById(videoId);
         setTimeout(() => rampYTVolume(yt, 0, 80, FADE_SECS * 1000), 500);
     }, []);
 
-    // Adjust YouTube playback rate when energy changes
+    // Adjust playback rate with energy
     useEffect(() => {
-        if (currentEnergy === null || !ytReadyRef.current || !ytPlayerRef.current || djMode) return;
+        if (currentEnergy === null || !ytReadyRef.current || !ytPlayerRef.current) return;
         const rate = currentEnergy >= 8 ? 1.25 : currentEnergy <= 3 ? 0.75 : 1.0;
         ytPlayerRef.current.setPlaybackRate(rate);
-    }, [currentEnergy, djMode]);
+    }, [currentEnergy]);
 
-    // ── DJ Engine: generate composition + start synthesizer ──────────────────
-    const loadDJComposition = useCallback(async (
-        track: Track, energy: number, sentiment: string, description: string
-    ) => {
-        setIsGenerating(true);
-        try {
-            const comp = await generateComposition(track, energy, sentiment, description);
-            if (!comp) return;
-
-            setComposition(comp);
-
-            if (!djEngineRef.current) djEngineRef.current = new DJEngine();
-            const engine = djEngineRef.current;
-
-            if (transitioningRef.current) return;
-            transitioningRef.current = true;
-            await engine.transitionTo(comp, FADE_SECS);
-            transitioningRef.current = false;
-
-            engine.setEnergy(energy);
-
-            // Reflect active layers in UI
-            const key = String(Math.max(1, Math.min(10, Math.round(energy))));
-            setActiveLayers(comp.energy_layers[key] ?? []);
-        } finally {
-            setIsGenerating(false);
-        }
-    }, []);
-
-    // When energy changes in DJ mode, just update layers (no re-generate)
-    useEffect(() => {
-        if (!djMode || !composition || currentEnergy === null) return;
-        djEngineRef.current?.setEnergy(currentEnergy);
-        const key = String(Math.max(1, Math.min(10, Math.round(currentEnergy))));
-        setActiveLayers(composition.energy_layers[key] ?? []);
-    }, [currentEnergy, djMode, composition]);
-
-    // ── Load a track (handles both modes) ────────────────────────────────────
-    const loadTrack = useCallback(async (
-        track: Track, energy: number, sentiment: string, description: string
-    ) => {
+    // Load a track
+    const loadTrack = useCallback(async (track: Track) => {
         setCurrentTrack(track);
+        if (track.youtube_id) await loadYouTubeTrack(track.youtube_id);
+    }, [loadYouTubeTrack]);
 
-        if (djMode) {
-            await loadDJComposition(track, energy, sentiment, description);
-        } else if (track.youtube_id) {
-            await loadYouTubeTrack(track.youtube_id);
-        }
-    }, [djMode, loadDJComposition, loadYouTubeTrack]);
-
-    // ── Skip to next song in queue ────────────────────────────────────────────
+    // Skip to next in queue
     const skipTrack = useCallback(async () => {
         if (queue.length === 0) return;
         const [next, ...rest] = queue;
         setQueue(rest);
-        await loadTrack(next, currentEnergy ?? 5, currentMood, liveDescription);
-    }, [queue, currentEnergy, currentMood, liveDescription, loadTrack]);
+        await loadTrack(next);
+    }, [queue, loadTrack]);
 
     // ── Webcam & analysis ─────────────────────────────────────────────────────
     const captureFrame = useCallback((): string | null => {
@@ -205,11 +147,8 @@ export default function LiveSessionPage() {
             setLiveDescription(result.description || "No description returned.");
             setEventLog(prev => [result, ...prev].slice(0, 50));
             if (result.changed && result.track) {
-                await loadTrack(result.track, result.energy, result.sentiment, result.description);
-                // Add next song to queue when current one changes
-                if (result.track) {
-                    setQueue(prev => prev.length < 5 ? prev : prev.slice(0, 4));
-                }
+                await loadTrack(result.track);
+                setQueue(prev => prev.length < 5 ? prev : prev.slice(0, 4));
             }
         } catch {
             setLiveDescription("Backend unreachable. Is the Flask server running?");
@@ -220,12 +159,6 @@ export default function LiveSessionPage() {
 
     // ── Session controls ──────────────────────────────────────────────────────
     const startSession = async () => {
-        // Unlock AudioContext for Tone.js
-        try {
-            if (!djEngineRef.current) djEngineRef.current = new DJEngine();
-            await djEngineRef.current.init();
-        } catch { /* ok */ }
-
         try {
             const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
             setStream(mediaStream);
@@ -234,7 +167,6 @@ export default function LiveSessionPage() {
             await clearHistory();
             setEventLog([]);
             setCurrentTrack(null);
-            setComposition(null);
             setQueue([]);
             setCurrentMood("Analyzing...");
         } catch {
@@ -246,14 +178,12 @@ export default function LiveSessionPage() {
         if (stream) stream.getTracks().forEach(t => t.stop());
         if (intervalRef.current) clearInterval(intervalRef.current);
         intervalRef.current = null;
-        djEngineRef.current?.stop();
         setStream(null);
         setIsSessionActive(false);
         setIsAnalyzing(false);
         setLiveDescription("Session ended. Camera offline.");
         setCurrentMood("None");
         setQueue([]);
-        setComposition(null);
     };
 
     const forceMode = async (mode: "party" | "calm") => {
@@ -261,7 +191,7 @@ export default function LiveSessionPage() {
         try {
             const track = await overrideSentiment(mode);
             if (track) {
-                await loadTrack(track, mode === "party" ? 8 : 3, mode, `DJ override → ${mode} mode`);
+                await loadTrack(track);
                 setCurrentMood(mode);
                 setCurrentEnergy(mode === "party" ? 8 : 3);
                 setLiveDescription(`DJ override → ${mode} mode`);
@@ -286,42 +216,20 @@ export default function LiveSessionPage() {
         return () => {
             if (stream) stream.getTracks().forEach(t => t.stop());
             if (intervalRef.current) clearInterval(intervalRef.current);
-            djEngineRef.current?.stop();
         };
     }, [stream]);
-
-    // ── Switch DJ mode on/off ─────────────────────────────────────────────────
-    const toggleDjMode = useCallback(async () => {
-        const next = !djMode;
-        setDjMode(next);
-
-        if (!next) {
-            // Switching OFF: stop engine, resume YouTube
-            djEngineRef.current?.stop();
-            setComposition(null);
-            setActiveLayers([]);
-            if (currentTrack?.youtube_id) loadYouTubeTrack(currentTrack.youtube_id);
-        } else {
-            // Switching ON: generate composition for current track
-            if (currentTrack && currentEnergy !== null) {
-                await loadDJComposition(currentTrack, currentEnergy, currentMood, liveDescription);
-            }
-        }
-    }, [djMode, currentTrack, currentEnergy, currentMood, liveDescription, loadYouTubeTrack, loadDJComposition]);
 
     // ── Derived UI ─────────────────────────────────────────────────────────────
     const moodColor = currentMood === "party" ? "text-pink-400"
                     : currentMood === "calm"  ? "text-indigo-400"
                     : "text-white/60";
 
-    const energy    = currentEnergy ?? 0;
-    const eqBars    = Array.from({ length: 12 }, (_, i) => {
+    const energy = currentEnergy ?? 0;
+    const eqBars = Array.from({ length: 12 }, (_, i) => {
         const base   = isSessionActive ? (energy / 10) * 60 : 4;
         const jitter = isSessionActive ? Math.sin(i * 2.3 + Date.now() / 400) * 12 : 0;
         return Math.max(4, Math.min(80, base + jitter));
     });
-
-    const ALL_LAYERS = ["kick", "snare", "hihat_closed", "hihat_open", "bass", "pad", "lead"];
 
     return (
         <div className="h-full flex flex-col p-8 max-w-7xl mx-auto w-full gap-8 overflow-y-auto">
@@ -331,23 +239,11 @@ export default function LiveSessionPage() {
             <div className="flex items-center justify-between flex-wrap gap-4">
                 <div>
                     <h1 className="text-4xl font-black text-white tracking-tight">Live DJ Session</h1>
-                    <p className="text-white/40 mt-1 text-sm">Crowd analysis · YouTube playback · Gemini AI composition · Tone.js synthesis</p>
+                    <p className="text-white/40 mt-1 text-sm">Crowd analysis · YouTube playback · Gemini Vision</p>
                 </div>
                 <div className="flex gap-3 flex-wrap">
                     {isSessionActive && (
                         <>
-                            {/* DJ Mode toggle */}
-                            <Button
-                                onClick={toggleDjMode}
-                                className={`rounded-xl h-12 px-5 font-bold border transition-all ${
-                                    djMode
-                                    ? "bg-purple-500/20 text-purple-300 border-purple-500/40 hover:bg-purple-500/30"
-                                    : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10"
-                                }`}
-                            >
-                                <Sparkles className="w-4 h-4 mr-2" />
-                                {djMode ? "AI DJ Mode ON" : "AI DJ Mode"}
-                            </Button>
                             <Button onClick={() => forceMode("calm")} disabled={isOverriding}
                                 className="bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 border border-indigo-500/20 rounded-xl h-12 px-5 font-bold">
                                 Force Calm
@@ -445,9 +341,7 @@ export default function LiveSessionPage() {
                                 <div className="flex justify-between text-sm">
                                     <span className="text-white/60">Music State</span>
                                     {isSessionActive ? (
-                                        <Badge className="bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
-                                            {djMode ? "AI DJ" : "Adapting"}
-                                        </Badge>
+                                        <Badge className="bg-indigo-500/10 text-indigo-400 border-indigo-500/20">Adapting</Badge>
                                     ) : (
                                         <Badge className="bg-white/5 text-white/40 border-white/10">Awaiting Data</Badge>
                                     )}
@@ -474,39 +368,6 @@ export default function LiveSessionPage() {
                                     </div>
                                 </div>
                             </div>
-
-                            {/* DJ Mode: instrument layers display */}
-                            {djMode && composition && (
-                                <div>
-                                    <div className="h-[1px] bg-white/5 mb-4" />
-                                    <h4 className="text-xs font-bold text-purple-400/60 uppercase tracking-widest mb-3 flex items-center gap-1">
-                                        <Sparkles className="w-3 h-3" /> AI Composition Layers
-                                    </h4>
-                                    <div className="grid grid-cols-2 gap-1.5">
-                                        {ALL_LAYERS.map(layer => {
-                                            const active = activeLayers.includes(layer);
-                                            return (
-                                                <div key={layer} className={`text-xs font-bold px-2 py-1.5 rounded-lg flex items-center gap-1.5 transition-all duration-500 ${
-                                                    active
-                                                    ? "bg-purple-500/20 text-purple-200 border border-purple-500/30"
-                                                    : "bg-white/3 text-white/20 border border-white/5"
-                                                }`}>
-                                                    <div className={`w-1.5 h-1.5 rounded-full ${active ? "bg-purple-400 animate-pulse" : "bg-white/15"}`} />
-                                                    {layer.replace("_", " ")}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                    {isGenerating && (
-                                        <p className="text-xs text-purple-400/60 mt-2 animate-pulse">Generating composition...</p>
-                                    )}
-                                    {composition && (
-                                        <p className="text-xs text-white/30 mt-2">
-                                            {composition.key_root} {composition.key_type} · {composition.bpm} BPM
-                                        </p>
-                                    )}
-                                </div>
-                            )}
 
                             <div className="h-[1px] bg-white/5" />
 
@@ -538,7 +399,6 @@ export default function LiveSessionPage() {
 
                     {/* Now Playing + Queue */}
                     <Card className="bg-gradient-to-br from-indigo-900/40 to-purple-900/20 border-white/10 p-6 rounded-[32px]">
-                        {/* Now Playing header */}
                         <div className="flex items-center gap-4 mb-4">
                             <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center shrink-0">
                                 {currentTrack ? <Music2 className={`w-6 h-6 ${moodColor}`} /> : <HeartPulse className="w-6 h-6 text-white/40" />}
@@ -554,7 +414,6 @@ export default function LiveSessionPage() {
                                     <p className="text-white/30 text-xs mt-0.5">{currentTrack.genre} · {currentTrack.bpm} BPM · {currentTrack.key}</p>
                                 )}
                             </div>
-                            {/* Skip button */}
                             {queue.length > 0 && (
                                 <Button onClick={skipTrack} size="icon"
                                     className="bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl w-10 h-10 shrink-0">
@@ -563,28 +422,18 @@ export default function LiveSessionPage() {
                             )}
                         </div>
 
-                        {/* DJ Mode status strip */}
-                        {djMode && isSessionActive && (
-                            <div className="flex items-center gap-2 mb-3">
-                                <Zap className={`w-3 h-3 ${currentMood === "party" ? "text-pink-400" : "text-purple-400"}`} />
-                                <span className="text-xs text-white/40">
-                                    {isGenerating ? "Composing..." : "AI composition active"}
-                                </span>
-                            </div>
-                        )}
-
-                        {/* YouTube player (hidden in DJ mode) */}
-                        <div className={`rounded-2xl overflow-hidden bg-black transition-all ${djMode ? "h-0 opacity-0 mb-0" : "mb-3"}`}>
+                        {/* YouTube player */}
+                        <div className="rounded-2xl overflow-hidden bg-black mb-3">
                             <div id="yt-player" />
                         </div>
 
-                        {!djMode && currentTrack?.youtube_url && (
+                        {currentTrack?.youtube_url && (
                             <a href={currentTrack.youtube_url} target="_blank" rel="noopener noreferrer"
                                 className="block w-full text-center text-xs font-bold uppercase tracking-widest text-white/50 hover:text-white border border-white/10 rounded-xl py-2 mb-3 transition-colors">
                                 Open in YouTube
                             </a>
                         )}
-                        {!djMode && currentTrack && !currentTrack.youtube_id && (
+                        {currentTrack && !currentTrack.youtube_id && (
                             <p className="text-xs text-white/30 text-center mb-3">Add YOUTUBE_API_KEY to backend/.env</p>
                         )}
 
