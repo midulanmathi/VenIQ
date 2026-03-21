@@ -472,7 +472,7 @@ export default function LiveSessionPage() {
                         <canvas
                             ref={overlayRef}
                             className="absolute inset-0 w-full h-full pointer-events-none"
-                            style={{ mixBlendMode: "screen", opacity: (mpReady && showMesh) ? 1 : 0, transition: "opacity 0.5s" }}
+                            style={{ mixBlendMode: "screen", opacity: (mpReady && showMesh) ? 1 : 0, transition: "opacity 0.5s", transform: "scaleX(-1)" }}
                         />
                         {!isSessionActive && (
                             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-8 text-center text-zinc-500">
