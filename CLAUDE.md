@@ -4,36 +4,37 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Adaptive Music Personalization System — an AI-powered backend that analyzes a user's mood and age from their webcam (plus an optional survey), then transforms music they choose (YouTube link or MP3 upload) across four dimensions: BPM, key, instrumentation, and overall flow. Output is a personalized playlist of the user's own songs, reshaped to match their emotional and demographic profile. Frontend is developed separately.
+Crowd-Aware DJ System — a real-time venue assistant that watches a crowd through a webcam, uses Gemini Vision to describe the scene and score its energy, and automatically recommends the next Spotify track when the vibe shifts. A DJ interface shows the current recommendation and allows manual override.
+
+This is not a music transformation tool — it selects existing Spotify tracks. No audio processing.
 
 ## User Flow
 
 ```
-1. User opens app → webcam activates
-2. Gemini Vision analyzes face → mood + estimated age bracket
-3. Optional: user completes a short survey (refines mood/preference)
-4. User submits music: YouTube URL (primary) or MP3 upload (fallback)
-5. Backend downloads audio, applies transformations
-6. Transformed track(s) returned as a playable playlist
+1. Browser webcam captures a frame every 10 seconds
+2. Frontend sends frame → POST /api/crowd/analyze
+3. Gemini Vision describes the crowd: energy score (1–10) + sentiment label
+4. Backend compares new energy to previous:
+     - delta < 2 and same sentiment → return { "changed": false }
+     - delta >= 2 OR new sentiment → fetch Spotify recommendations → return new track
+5. Frontend auto-queues the track; DJ can override via POST /api/playback/override
+6. DJ sees: current track, crowd description, energy level
 ```
 
 ## Architecture
 
 ```
-Webcam frame + optional survey
+Browser webcam (every 10s)
+    ↓  POST /api/crowd/analyze
+Gemini Vision → { description, energy: 1–10, sentiment }
     ↓
-Gemini Vision API  →  { mood, age_bracket, confidence }
+Change Detection (energy delta >= 2 OR sentiment changed)
     ↓
-Backend API (Flask)
-    ├── /api/analyze   — runs Gemini, returns mood + age
-    ├── /api/ingest    — accepts YouTube URL or MP3 upload, returns track_id
-    ├── /api/transform — applies transformations, returns playlist
-    └── /api/stream/<session_id> — streams transformed audio
+Spotify Recommendations API → track list
     ↓
-Music Transform Service
-    →  BPM shift · key shift · instrumentation swap · flow adjustment
+{ changed, energy, description, sentiment, track }
     ↓
-Frontend playlist (separate repo)
+Frontend DJ interface (separate repo)
 ```
 
 **Core components:**
@@ -41,13 +42,11 @@ Frontend playlist (separate repo)
 | Component | Location | Responsibility |
 |---|---|---|
 | Flask app factory | `app/__init__.py` | App init, CORS, blueprints |
-| Analyze route | `app/routes/analyze.py` | POST /api/analyze — Gemini Vision → mood + age |
-| Ingest route | `app/routes/ingest.py` | POST /api/ingest — YouTube download or MP3 upload |
-| Transform route | `app/routes/music.py` | POST /api/transform, GET /api/stream |
-| Gemini service | `app/services/gemini.py` | Webcam frame → mood + age via Gemini Vision |
-| Music transform | `app/services/music_transform.py` | librosa/pydub — BPM, key, instruments, flow |
-| YouTube ingestion | `app/services/ingest.py` | yt-dlp download + ffmpeg conversion to WAV |
-| Schemas | `app/models/schemas.py` | Request/response dataclasses |
+| Crowd route | `app/routes/crowd.py` | POST /api/crowd/analyze — full pipeline |
+| Playback route | `app/routes/playback.py` | GET /api/playback/current, POST /api/playback/override |
+| Crowd service | `app/services/crowd.py` | Gemini Vision → scene description + energy + sentiment |
+| Spotify service | `app/services/spotify.py` | Client credentials auth + recommendations |
+| Schemas | `app/models/schemas.py` | Dataclasses for SceneResult, Track, CrowdAnalyzeResponse |
 
 ## Commands
 
@@ -58,69 +57,59 @@ pip install -r backend/requirements.txt
 # Run dev server
 cd backend && python run.py
 
-# Set up environment variables
-cd backend && cp .env.example .env  # fill in GEMINI_API_KEY
+# Set up environment
+cd backend && cp .env.example .env  # fill in all three keys
 
 # Run tests
 cd backend && pytest tests/
 
-# Run single test file
-cd backend && pytest tests/test_analyze.py -v
+# Run single test
+cd backend && pytest tests/test_crowd.py -v
 ```
 
 ## Environment Variables
 
-See `backend/.env.example`. Required:
-- `GEMINI_API_KEY` — used for both mood detection and age estimation
-- `FLASK_ENV` — `development` or `production`
+See `backend/.env.example`. All three are required:
+- `GEMINI_API_KEY` — Gemini Vision crowd analysis
+- `SPOTIFY_CLIENT_ID` — Spotify developer app (client credentials, no user OAuth)
+- `SPOTIFY_CLIENT_SECRET` — Spotify developer app
 
-## Transformation Parameters
-
-All four dimensions are applied together based on the combined mood + age profile.
-
-### Mood axis
-
-| Mood | BPM | Key | Instrumentation | Flow |
-|---|---|---|---|---|
-| `sad` | -20% | shift down 1–2 semitones | piano, soft strings | slower attack, long decay |
-| `anxious` | -15% | minor → more stable (e.g. shift +2) | ambient pad, steady pulse | even rhythm, reduce complexity |
-| `happy` | +10% | shift up 1 semitone | brighter tones, lighter texture | upbeat phrasing |
-| `calm` | no change | no change | minimal | no change |
-
-### Age axis (layered on top of mood)
-
-| Age Bracket | BPM adjustment | Additional notes |
-|---|---|---|
-| `young` (18–35) | +5% on top of mood | more dynamic range allowed |
-| `middle` (36–60) | no additional change | baseline mood mapping |
-| `senior` (60+) | -10% on top of mood | warmer instruments, reduced complexity |
-
-Fallback: if Gemini analysis fails → `mood = "calm"`, `age_bracket = "middle"`.
+Get Spotify keys at: https://developer.spotify.com/dashboard (free, create an app)
 
 ## API Contract
 
 ```
-POST /api/analyze
-  Body: { "image_base64": "...", "survey": { "stress": 3, "energy": 2 } }
-  Response: { "mood": "calm", "age_bracket": "senior", "confidence": 0.87 }
+POST /api/crowd/analyze
+  Body:    { "image_base64": "<base64 JPEG>" }
+  No change: { "changed": false, "energy": 5, "description": "..." }
+  Changed:   { "changed": true, "energy": 8, "description": "...", "sentiment": "party",
+               "track": { "name": "...", "artist": "...", "uri": "spotify:track:...",
+                          "preview_url": "...", "spotify_url": "..." } }
 
-POST /api/ingest
-  Body: { "youtube_url": "https://youtube.com/watch?v=..." }
-  OR multipart form: file=<mp3>
-  Response: { "track_id": "<uuid>", "title": "Song Title", "duration_s": 210 }
+GET /api/playback/current
+  Response:  { "track": {...} | null, "source": "auto" | "override" | null }
 
-POST /api/transform
-  Body: { "track_ids": ["<uuid>"], "mood": "sad", "age_bracket": "senior" }
-  Response: { "playlist": [{ "session_id": "<uuid>", "audio_url": "/api/stream/<uuid>", "title": "..." }] }
-
-GET /api/stream/<session_id>
-  Response: audio/mpeg stream
+POST /api/playback/override
+  Body (option A): { "track": { "name": "...", "uri": "...", ... } }
+  Body (option B): { "sentiment": "party" }   ← fetches a fresh recommendation
+  Response:  { "track": {...}, "source": "override" }
 ```
+
+## Sentiment → Spotify Mapping
+
+| Sentiment | Seed Genres | Energy | Tempo |
+|---|---|---|---|
+| `study` | classical, ambient | 0.25 | 70 BPM |
+| `chill` | chill, indie | 0.40 | 90 BPM |
+| `calm` | classical, sleep | 0.20 | 65 BPM |
+| `party` | pop, dance, hip-hop | 0.85 | 128 BPM |
+| `intense` | rock, electronic | 0.90 | 140 BPM |
+| `romantic` | jazz, soul, r-n-b | 0.35 | 80 BPM |
 
 ## Key Constraints
 
-- Never store facial image data — process the webcam frame in memory only, discard immediately after Gemini responds
-- YouTube audio download must strip video; store only the audio WAV in `audio/ingested/`
-- End-to-end latency target: < 5 seconds per track (transformation is the bottleneck)
-- If transformation fails for a track, return the original unmodified audio with a warning flag
-- Always inform the user what the system detected (mood, age bracket) — frontend displays this
+- Never store webcam frames — process base64 in memory only, discard after Gemini responds
+- Spotify uses **Client Credentials** (app-level) — no per-user login required
+- Change detection threshold is configurable via `Config.ENERGY_CHANGE_THRESHOLD` (default: 2)
+- Both energy delta AND sentiment change can trigger a new recommendation independently
+- Crowd state (`_state`) and playback state (`_current`) are in-memory — reset on server restart

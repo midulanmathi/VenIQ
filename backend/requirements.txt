@@ -1,19 +1,10 @@
 flask==3.0.3
 flask-cors==4.0.1
 python-dotenv==1.0.1
+requests==2.32.3
 
-# AI — mood + age detection
+# AI — crowd scene analysis
 google-generativeai==0.7.2
-
-# Audio ingestion
-yt-dlp==2024.5.27          # YouTube audio download (requires ffmpeg on PATH)
-pydub==0.25.1              # MP3/WAV conversion (requires ffmpeg on PATH)
-
-# Music transformation
-librosa==0.10.2
-soundfile==0.12.1
-numpy==1.26.4
-scipy==1.13.1
 
 # Testing
 pytest==8.2.2
