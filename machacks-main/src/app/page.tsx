@@ -10,6 +10,7 @@ import {
   Camera,
   BrainCircuit,
   HeartPulse,
+  ChevronDown,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -38,17 +39,51 @@ const WELCOME_DISMISS_KEY = "soundsmith_welcome_dismissed";
 const LANDING_FEATURES: {
   title: string;
   label: string;
+  description: string;
   icon: LucideIcon;
   animation: FeatureAnimationId;
 }[] = [
-  { title: "Real-time Adaptation", label: "DYNAMIC", icon: Sparkles, animation: "clock" },
-  { title: "Emotion Tracking", label: "VISION", icon: Activity, animation: "emotions" },
-  { title: "Therapeutic Layers", label: "AUDIO", icon: Layers, animation: "layers" },
-  { title: "Accessible Design", label: "ELDERLY", icon: HeartPulse, animation: "access" },
+  {
+    title: "Real-time Adaptation",
+    label: "DYNAMIC",
+    description:
+      "Webcam frames are analyzed on a steady cadence; when crowd energy or mood shifts enough, VenIQ surfaces a new Spotify pick automatically so the room never lags behind the moment.",
+    icon: Sparkles,
+    animation: "clock",
+  },
+  {
+    title: "Emotion Tracking",
+    label: "VISION",
+    description:
+      "Our vision model reads the whole scene—movement, density, and context—not individual faces, and returns structured energy and sentiment that drive which genres and tempos we lean toward.",
+    icon: Activity,
+    animation: "emotions",
+  },
+  {
+    title: "Therapeutic Layers",
+    label: "AUDIO",
+    description:
+      "Recommendations map calm versus high-energy moods to curated seed genres and pacing, layering a simple therapeutic logic on top of real crowd signal so playback feels intentional, not random.",
+    icon: Layers,
+    animation: "layers",
+  },
+  {
+    title: "Accessible Design",
+    label: "ELDERLY",
+    description:
+      "The DJ view keeps large type, clear hierarchy, and an obvious override path: you always see what the crowd triggered and can take the deck back in one gesture—built for busy booths and low-friction operation.",
+    icon: HeartPulse,
+    animation: "access",
+  },
 ];
 
 function FeaturesSection() {
   const reduceMotion = useReducedMotion();
+  const [openLabel, setOpenLabel] = React.useState<string | null>(null);
+
+  function toggleFeature(label: string) {
+    setOpenLabel((prev) => (prev === label ? null : label));
+  }
 
   return (
     <section
@@ -72,9 +107,21 @@ function FeaturesSection() {
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
           {LANDING_FEATURES.map((feat, i) => {
             const Icon = feat.icon;
+            const isOpen = openLabel === feat.label;
             return (
               <motion.article
                 key={feat.label}
+                role="button"
+                tabIndex={0}
+                aria-expanded={isOpen}
+                aria-controls={`feature-detail-${feat.label}`}
+                onClick={() => toggleFeature(feat.label)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    toggleFeature(feat.label);
+                  }
+                }}
                 initial={
                   reduceMotion
                     ? { opacity: 1, y: 0 }
@@ -88,11 +135,14 @@ function FeaturesSection() {
                   ease: [0.22, 1, 0.36, 1],
                 }}
                 className={cn(
-                  "group relative flex min-h-[340px] flex-col overflow-hidden rounded-[28px]",
+                  "group relative flex min-h-[340px] cursor-pointer flex-col overflow-hidden rounded-[28px] text-left outline-none",
                   "border border-white/[0.07] bg-[#0a0a0a] p-8",
                   "transition-[transform,border-color,box-shadow,background-color] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
                   "hover:-translate-y-1.5 hover:border-violet-500/25 hover:bg-[#0e0e0e]",
-                  "hover:shadow-[0_28px_56px_rgba(0,0,0,0.6),0_0_0_1px_rgba(139,92,246,0.12),0_0_48px_-8px_rgba(124,58,237,0.2)]"
+                  "hover:shadow-[0_28px_56px_rgba(0,0,0,0.6),0_0_0_1px_rgba(139,92,246,0.12),0_0_48px_-8px_rgba(124,58,237,0.2)]",
+                  "focus-visible:border-violet-500/35 focus-visible:ring-2 focus-visible:ring-violet-500/25 focus-visible:ring-offset-2 focus-visible:ring-offset-black",
+                  isOpen &&
+                    "border-violet-500/30 bg-[#0c0c0c] shadow-[0_0_0_1px_rgba(139,92,246,0.15),0_0_40px_-12px_rgba(124,58,237,0.25)]"
                 )}
               >
                 <div
@@ -122,14 +172,58 @@ function FeaturesSection() {
                     reduceMotion={!!reduceMotion}
                   />
                 </div>
-                <h4
-                  className={cn(
-                    featureTitleFont.className,
-                    "relative z-[1] mt-auto shrink-0 text-[1.15rem] leading-snug tracking-[-0.01em] text-white md:text-[1.35rem]"
-                  )}
-                >
-                  {feat.title}
-                </h4>
+                <div className="relative z-[1] mt-auto flex shrink-0 items-start justify-between gap-3 pt-1">
+                  <h4
+                    className={cn(
+                      featureTitleFont.className,
+                      "min-w-0 flex-1 text-[1.15rem] leading-snug tracking-[-0.01em] text-white md:text-[1.35rem]"
+                    )}
+                  >
+                    {feat.title}
+                  </h4>
+                  <ChevronDown
+                    className={cn(
+                      "mt-1 h-5 w-5 shrink-0 text-violet-400/70 transition-transform duration-300 ease-out",
+                      isOpen && "rotate-180 text-violet-300"
+                    )}
+                    aria-hidden
+                  />
+                </div>
+                <AnimatePresence initial={false}>
+                  {isOpen ? (
+                    <motion.div
+                      id={`feature-detail-${feat.label}`}
+                      key="detail"
+                      role="region"
+                      aria-label={`About ${feat.title}`}
+                      initial={
+                        reduceMotion
+                          ? { height: "auto", opacity: 1 }
+                          : { height: 0, opacity: 0 }
+                      }
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={
+                        reduceMotion
+                          ? { height: "auto", opacity: 0 }
+                          : { height: 0, opacity: 0 }
+                      }
+                      transition={{
+                        duration: reduceMotion ? 0 : 0.32,
+                        ease: [0.22, 1, 0.36, 1],
+                      }}
+                      className="relative z-[1] overflow-hidden"
+                    >
+                      <p
+                        className={cn(
+                          featureTitleFont.className,
+                          "border-t border-violet-500/15 pb-1 pt-4 text-[0.9rem] leading-relaxed text-white/55 md:text-[0.95rem]"
+                        )}
+                      >
+                        {feat.description}
+                      </p>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
                 <span
                   className="absolute bottom-8 left-8 h-px w-[calc(100%-4rem)] origin-left scale-x-0 bg-gradient-to-r from-white/45 via-white/20 to-transparent transition-transform duration-500 ease-out group-hover:scale-x-100"
                   aria-hidden
