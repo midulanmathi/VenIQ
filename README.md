@@ -1,135 +1,118 @@
 # VenIQ
 
-**The room becomes the DJ’s co-pilot.** VenIQ watches the crowd through the browser camera, understands what the *space* feels like—not individual faces—and when the energy or mood meaningfully shifts, it proposes music that actually fits. You stay in control: the system suggests; you decide.
+**Crowd-aware music that adapts in real time.** A webcam watches the room; Gemini reads the scene; the right track plays. Built at MacHacks 2026.
 
-Built for **MacHacks** as a full-stack experiment in **ambient intelligence** for live settings: classrooms that flip into parties, lounges that tighten up, or any venue where the vibe is the product.
-
----
-
-## Why this isn’t “just another mood app”
-
-Most “emotion AI” products chase faces one by one, average scores, and hope for the best. That breaks in real rooms: bad angles, backs turned, lighting, and context (exam week vs. Friday night) all get lost.
-
-**VenIQ takes a different stance:**
-
-1. **Scene-first vision** — We send a single frame to **Gemini** and ask for a *plain-language* description of what people are doing together. No per-face emotion APIs, no storing video—frames live in memory for the request, then they’re gone.
-
-2. **Transparent “second brain”** — Classification isn’t a black box. A **fast, rule-based layer** maps keywords in that description to **sentiment** (`calm` vs `party`), **confidence**, and **energy (1–10)**. You can read the code, tweak the signals, and reason about failures—without burning tokens on every tweak.
-
-3. **Curated musical ground truth** — Recommendations aren’t a generic infinite scroll. We built a **hand-picked catalog of 30 reference tracks** spanning BPM, key, genre, and era—from ambient and neoclassical to EDM and anthems—so picks are **musically intentional**, then enriched with **Deezer** (preview clips, artwork, deep links) via their public API.
-
-4. **Built like a real booth** — **Change detection** respects hysteresis: big shifts matter; jitter doesn’t. A **cooldown** stops the stack from thrashing. **Playback state** and **analysis history** are first-class so the UI can show *why* a song appeared—and **override** stays one API call away.
-
-5. **Sound in the browser** — The **Next.js** workspace pairs with **Tone.js** so adaptive, generative, and layered audio ideas can live next to the same session that’s reading the room.
+[![MacHacks 2026](https://img.shields.io/badge/MacHacks-2026-7c3aed?style=flat-square)](https://devpost.com/software/veniq)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js)](https://nextjs.org)
+[![Flask](https://img.shields.io/badge/Flask-3.0-lightgrey?style=flat-square&logo=flask)](https://flask.palletsprojects.com)
+[![Gemini](https://img.shields.io/badge/Gemini-2.5_Flash-4285F4?style=flat-square&logo=google)](https://deepmind.google/technologies/gemini)
 
 ---
 
-## How it flows
+## Screenshots
+
+| Live editor (webcam + MediaPipe overlay + track) | Landing page |
+|---|---|
+| ![VenIQ editor](./docs/editor.png) | ![VenIQ landing](./docs/landing.png) |
+
+> **For you:** take two screenshots and drop them in a `docs/` folder at the repo root.
+> 1. `editor.png` — open `/editor`, start the webcam, let MediaPipe render the face mesh or skeleton overlay, then screenshot the full page (webcam + energy bar + current track).
+> 2. `landing.png` — screenshot the landing page hero.
+> Then delete this note.
+
+---
+
+## How it works
+
+Two layers run simultaneously — one fast and local, one slow and smart.
 
 ```
-Browser webcam (interval sampling)
+Browser webcam
+  │
+  ├─► MediaPipe (~60fps, client-side)
+  │     FaceLandmarker  → 478 landmarks → blink rate, smile, brow furrow
+  │     PoseLandmarker  → 33 keypoints × 6 people → hands raised, crowd count
+  │     → packed into a natural-language context string
+  │
+  └─► POST /api/crowd/analyze  (every 3s)
         │
-        ▼
-POST /api/crowd/analyze  ──►  Gemini: “What’s happening in the frame?”
-        │                              (natural language)
-        ▼
-                    Rule-based scorer → sentiment + energy + confidence
+        Gemini 2.5 Flash  ←  JPEG frame + MediaPipe context
+        → { sentiment, energy: 1–10, description }
         │
-        ▼
-        Shifted meaningfully? (threshold + cooldown)
-        │
-        ├── No  → { changed: false, description, energy, … }
-        │
-        └── Yes → Pick from curated DB → Deezer search → track + previews
-                      │
-                      ▼
-              Frontend + optional override (POST /api/playback/override)
+        Changed?  |ΔE| ≥ 3  or  sentiment flip
+        ├── No  → hold
+        └── Yes → curated 30-track DB → Deezer preview → Tone.js crossfade
 ```
 
----
+**Change detection** uses a threshold + 30-second cooldown so jitter doesn't thrash the queue. **Tone.js** runs two Player nodes through independent Filter and Volume chains; crossfades are a randomly selected lowpass sweep, highpass sweep, or straight cut — both volume nodes ramp simultaneously, zero bleed.
 
-## Repository layout
-
-| Path | Role |
-|------|------|
-| `backend/` | Flask API — crowd pipeline, playback state, analysis history |
-| `backend/app/services/crowd.py` | Two-stage vision: Gemini description → keyword sentiment/energy |
-| `backend/app/services/songs_db.py` | Curated 30-track reference database |
-| `backend/app/services/deezer.py` | Deezer search for previews & metadata |
-| `machacks-main/` | Next.js 16 app — landing, editor workspace, Tone.js, UI |
+The DJ always has a manual override (`POST /api/playback/override`).
 
 ---
 
 ## Quick start
 
-### Backend
-
+**Backend**
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # add your keys
-python run.py
+cp .env.example .env   # set GEMINI_API_KEY
+python run.py          # → http://localhost:5000
 ```
 
-### Frontend
-
+**Frontend**
 ```bash
 cd machacks-main
 npm install
-npm run dev
+npm run dev            # → http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) for the app; point the frontend at your Flask base URL as configured in your environment.
-
-### Tests
-
-```bash
-cd backend && pytest tests/ -v
-```
+The live editor is at `/editor`. Tests: `cd backend && pytest tests/ -v`.
 
 ---
 
 ## Environment
 
-Copy `backend/.env.example` to `backend/.env` and set:
+| Variable | Required | Notes |
+|---|---|---|
+| `GEMINI_API_KEY` | Yes | Scene analysis via Gemini 2.5 Flash |
+| `YOUTUBE_API_KEY` | No | Optional integrations |
 
-| Variable | Purpose |
-|----------|---------|
-| `GEMINI_API_KEY` | Scene descriptions (Gemini vision / flash) |
-| `YOUTUBE_API_KEY` | Optional integrations that use YouTube Data API (see `.env.example` notes) |
-
-Deezer track lookup uses the **public** search API (no key required for basic usage in this project).
+Deezer track search uses the public API — no key needed.
 
 ---
 
-## API snapshot
+## Repo layout
 
-- **`POST /api/crowd/analyze`** — Body: `{ "image_base64": "..." }`. Returns crowd fields, `changed`, optional `track` with Deezer-friendly fields when a new pick fires.
-- **`GET /api/crowd/history`** — Full log of analyses for timelines and debugging.
-- **`DELETE /api/crowd/history`** — Clear history.
-- **`GET /api/playback/current`** / **`POST /api/playback/override`** — What’s playing and manual override.
+```
+backend/
+  app/services/crowd.py       Gemini vision → energy + sentiment
+  app/services/songs_db.py    30-track curated catalog
+  app/services/deezer.py      preview clips + album art via Deezer public API
+  app/routes/crowd.py         POST /api/crowd/analyze  (main pipeline)
+  app/routes/playback.py      GET/POST /api/playback/*
 
-See route docstrings under `backend/app/routes/` for the exact JSON shapes.
+machacks-main/
+  src/app/editor/             live DJ interface
+  src/lib/mediapipe-analyzer  client-side vision (FaceLandmarker + PoseLandmarker)
+  src/lib/api.ts              typed backend client
+```
 
 ---
 
 ## Tech stack
 
-- **Python / Flask** — API, orchestration, in-memory session state  
-- **Google Gemini** — Vision-to-language scene understanding  
-- **Deezer API** — Previews and metadata for human-verified catalog picks  
-- **Next.js 16, React 19, Tailwind, Framer Motion** — Product UI  
-- **Tone.js** — Web audio and adaptive sound layers  
+| | |
+|---|---|
+| Local vision | MediaPipe Tasks — FaceLandmarker (478pts), PoseLandmarker (33pts × 6 people) |
+| Cloud vision | Google Gemini 2.5 Flash |
+| Audio | Tone.js (crossfading), Deezer Public API (previews + metadata) |
+| Frontend | Next.js 16, React 19, Tailwind CSS, Framer Motion, TypeScript |
+| Backend | Python, Flask 3, pytest |
 
 ---
 
-## Philosophy (the one-liner for judges)
+## Team
 
-> VenIQ doesn’t guess your smile—it reads the *room*, explains itself in words you can audit, and hands you music that respects both **crowd physics** and **musical craft**, with a DJ always in the loop.
-
----
-
-## Team & context
-
-MacHacks project — **VenIQ**: crowd-aware intelligence for adaptive playback and creative tooling. PRs and issues welcome; if you extend the catalog or scoring rules, keep them **explainable**—that’s the point.
+Built at **MacHacks 2026** by [shaeshan kunalan](https://github.com/shaeshan2), Marco Dava, and [Midulan Mathinathan](https://github.com/midulan).
