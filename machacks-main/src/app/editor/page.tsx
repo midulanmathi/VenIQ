@@ -86,6 +86,27 @@ export default function LiveSessionPage() {
     const [eventLog,        setEventLog]        = useState<AnalysisEntry[]>([]);
     const [queue,           setQueue]           = useState<Track[]>([]);
 
+    // Countdown to next analysis (seconds)
+    const [countdown, setCountdown] = useState(CAPTURE_INTERVAL_MS / 1000);
+    useEffect(() => {
+        if (!isSessionActive || isAnalyzing) { setCountdown(CAPTURE_INTERVAL_MS / 1000); return; }
+        setCountdown(CAPTURE_INTERVAL_MS / 1000);
+        const tick = setInterval(() => setCountdown(p => Math.max(0, p - 1)), 1000);
+        return () => clearInterval(tick);
+    }, [isAnalyzing, isSessionActive]);
+
+    // Flash when mood changes
+    const prevMoodRef = useRef(currentMood);
+    const [moodFlash, setMoodFlash] = useState(false);
+    useEffect(() => {
+        if (prevMoodRef.current === currentMood) return;
+        prevMoodRef.current = currentMood;
+        if (currentMood === "None" || currentMood === "Analyzing…") return;
+        setMoodFlash(true);
+        const t = setTimeout(() => setMoodFlash(false), 700);
+        return () => clearTimeout(t);
+    }, [currentMood]);
+
     // ── MediaPipe real-time loop ──────────────────────────────────────────────
     const startMpLoop = useCallback((mode: "study" | "club") => {
         const video   = videoRef.current;
@@ -488,6 +509,24 @@ export default function LiveSessionPage() {
                                 <p className="max-w-xs text-sm leading-relaxed">Turn on the session to use your webcam.</p>
                             </div>
                         )}
+                        {/* Countdown ring — top-left, very subtle */}
+                        {isSessionActive && !isAnalyzing && (
+                            <div className="absolute top-3 left-3 opacity-40 pointer-events-none">
+                                <svg width="22" height="22" viewBox="0 0 22 22">
+                                    <circle cx="11" cy="11" r="9" fill="none" stroke="white" strokeWidth="1.5" opacity="0.2" />
+                                    <circle
+                                        cx="11" cy="11" r="9"
+                                        fill="none" stroke="white" strokeWidth="1.5"
+                                        strokeDasharray="56.55"
+                                        strokeDashoffset={56.55 * (1 - countdown / (CAPTURE_INTERVAL_MS / 1000))}
+                                        strokeLinecap="round"
+                                        transform="rotate(-90 11 11)"
+                                        style={{ transition: "stroke-dashoffset 1s linear" }}
+                                    />
+                                </svg>
+                            </div>
+                        )}
+
                         {/* MediaPipe mesh toggle badge */}
                         {isSessionActive && mpReady && (
                             <button
@@ -562,7 +601,7 @@ export default function LiveSessionPage() {
                             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
                                 {isStudy ? "State" : "Mood"}
                             </p>
-                            <p className={`mt-0.5 text-lg font-semibold capitalize leading-tight ${emotionCfg.color}`}>
+                            <p className={`mt-0.5 text-lg font-semibold capitalize leading-tight transition-all duration-300 ${emotionCfg.color} ${moodFlash ? "brightness-150 drop-shadow-[0_0_6px_currentColor]" : ""}`}>
                                 {emotionCfg.emoji} {emotionCfg.label}
                             </p>
                             {currentConfidence !== null && (
@@ -586,12 +625,22 @@ export default function LiveSessionPage() {
                                 </div>
                             )}
                         </div>
-                        <div className="sm:text-right">
-                            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Now playing</p>
-                            <p className="mt-0.5 truncate text-sm font-semibold text-zinc-100">
-                                {currentTrack?.name ?? "—"}
-                            </p>
-                            <p className="truncate text-xs text-zinc-500">{currentTrack?.artist ?? "Waiting for a track"}</p>
+                        <div className="flex items-center gap-2.5 sm:justify-end">
+                            {currentTrack?.cover_url && (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                    src={currentTrack.cover_url}
+                                    alt=""
+                                    className="h-10 w-10 shrink-0 rounded-lg object-cover ring-1 ring-white/10"
+                                />
+                            )}
+                            <div className="min-w-0 sm:text-right">
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Now playing</p>
+                                <p className="mt-0.5 truncate text-sm font-semibold text-zinc-100">
+                                    {currentTrack?.name ?? "—"}
+                                </p>
+                                <p className="truncate text-xs text-zinc-500">{currentTrack?.artist ?? "Waiting for a track"}</p>
+                            </div>
                         </div>
                     </div>
                     <p className="mt-3 border-t border-zinc-800/80 pt-3 text-sm leading-snug text-zinc-400">
