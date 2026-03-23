@@ -436,10 +436,10 @@ export default function LiveSessionPage() {
                     Ven<span className="text-white">IQ</span>
                 </span>
                 {/* Mode selector */}
-                <div className="flex bg-white/5 border border-white/10 rounded-xl p-0.5 gap-0.5">
+                <div className="flex bg-white/5 border border-white/10 rounded-xl p-0.5 gap-0.5 select-none">
                     <button
                         onClick={() => setAppMode("auto")}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                        className={`touch-manipulation px-2.5 py-1 rounded-lg text-xs font-bold transition-all active:scale-95 ${
                             appMode === "auto" ? "bg-white/15 text-white" : "text-white/40 hover:text-white/60"
                         }`}
                     >
@@ -447,7 +447,7 @@ export default function LiveSessionPage() {
                     </button>
                     <button
                         onClick={() => setAppMode(appMode === "club" ? "auto" : "club")}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                        className={`touch-manipulation px-2.5 py-1 rounded-lg text-xs font-bold transition-all active:scale-95 ${
                             appMode === "club" ? "bg-pink-500/20 text-pink-300" : "text-white/40 hover:text-white/60"
                         }`}
                     >
@@ -455,7 +455,7 @@ export default function LiveSessionPage() {
                     </button>
                     <button
                         onClick={() => setAppMode(appMode === "study" ? "auto" : "study")}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                        className={`touch-manipulation px-2.5 py-1 rounded-lg text-xs font-bold transition-all active:scale-95 ${
                             appMode === "study" ? "bg-blue-500/20 text-blue-300" : "text-white/40 hover:text-white/60"
                         }`}
                     >
@@ -532,7 +532,7 @@ export default function LiveSessionPage() {
                         {isSessionActive && mpReady && (
                             <button
                                 onClick={() => setShowMesh(v => !v)}
-                                className={`absolute top-3 right-3 bg-black/60 backdrop-blur-md border px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all ${
+                                className={`touch-manipulation absolute top-3 right-3 bg-black/60 backdrop-blur-md border px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all active:scale-95 ${
                                     isStudy ? "border-blue-500/30 hover:border-blue-500/60" : "border-pink-500/30 hover:border-pink-500/60"
                                 } ${!showMesh ? "opacity-50" : ""}`}
                             >
@@ -597,7 +597,7 @@ export default function LiveSessionPage() {
 
                 {/* Compact status: mood + energy + now playing */}
                 <section className="rounded-xl border border-zinc-700/50 bg-zinc-900/30 px-4 py-3 shadow-lg backdrop-blur-sm sm:px-5">
-                    <div className="grid gap-3 sm:grid-cols-3 sm:gap-4">
+                    <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 sm:gap-4">
                         <div>
                             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
                                 {isStudy ? "State" : "Mood"}
@@ -702,7 +702,7 @@ export default function LiveSessionPage() {
                                 variant="outline"
                                 size="sm"
                                 onClick={skipTrack}
-                                className="ml-auto border-zinc-700 bg-zinc-900/50 text-zinc-200 hover:bg-zinc-800"
+                                className="touch-manipulation ml-auto border-zinc-700 bg-zinc-900/50 text-zinc-200 active:scale-95 hover:bg-zinc-800"
                             >
                                 <SkipForward className="mr-1.5 h-3.5 w-3.5" />
                                 Skip
@@ -732,7 +732,7 @@ export default function LiveSessionPage() {
                         {!isSessionActive ? (
                             <Button
                                 onClick={startSession}
-                                className="rounded-lg bg-violet-600 px-6 font-semibold text-white hover:bg-violet-500"
+                                className="w-full touch-manipulation rounded-lg bg-violet-600 px-6 font-semibold text-white active:scale-95 hover:bg-violet-500 sm:w-auto"
                             >
                                 <Play className="mr-2 h-4 w-4 fill-current" />
                                 Go live
@@ -741,7 +741,7 @@ export default function LiveSessionPage() {
                             <Button
                                 onClick={stopSession}
                                 variant="outline"
-                                className="rounded-lg border-red-500/40 bg-red-950/30 font-semibold text-red-200 hover:bg-red-950/50"
+                                className="w-full touch-manipulation rounded-lg border-red-500/40 bg-red-950/30 font-semibold text-red-200 active:scale-95 hover:bg-red-950/50 sm:w-auto"
                             >
                                 <Square className="mr-2 h-4 w-4 fill-current" />
                                 End session
@@ -754,7 +754,7 @@ export default function LiveSessionPage() {
                                 <Button
                                     type="button"
                                     onClick={clearOverride}
-                                    className={`rounded-lg font-semibold ${
+                                    className={`touch-manipulation rounded-lg font-semibold active:scale-95 ${
                                         overrideLock === "party"
                                             ? "bg-fuchsia-950/50 text-fuchsia-200 ring-1 ring-fuchsia-500/40 hover:bg-fuchsia-950/70"
                                             : "bg-sky-950/50 text-sky-200 ring-1 ring-sky-500/40 hover:bg-sky-950/70"
@@ -770,7 +770,7 @@ export default function LiveSessionPage() {
                                         onClick={() => forceMode("calm")}
                                         disabled={isOverriding}
                                         variant="outline"
-                                        className="rounded-lg border-sky-500/30 font-semibold text-sky-200 hover:bg-sky-950/40"
+                                        className="touch-manipulation rounded-lg border-sky-500/30 font-semibold text-sky-200 active:scale-95 hover:bg-sky-950/40"
                                     >
                                         <Unlock className="mr-2 h-4 w-4" />
                                         Force calm
@@ -780,7 +780,7 @@ export default function LiveSessionPage() {
                                         onClick={() => forceMode("party")}
                                         disabled={isOverriding}
                                         variant="outline"
-                                        className="rounded-lg border-fuchsia-500/30 font-semibold text-fuchsia-200 hover:bg-fuchsia-950/40"
+                                        className="touch-manipulation rounded-lg border-fuchsia-500/30 font-semibold text-fuchsia-200 active:scale-95 hover:bg-fuchsia-950/40"
                                     >
                                         <Unlock className="mr-2 h-4 w-4" />
                                         Force party
