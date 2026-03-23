@@ -11,14 +11,9 @@
 
 ## Screenshots
 
-| Live editor (webcam + MediaPipe overlay + track) | Landing page |
-|---|---|
-| ![VenIQ editor](./docs/editor.png) | ![VenIQ landing](./docs/landing.png) |
-
-> **For you:** take two screenshots and drop them in a `docs/` folder at the repo root.
-> 1. `editor.png` — open `/editor`, start the webcam, let MediaPipe render the face mesh or skeleton overlay, then screenshot the full page (webcam + energy bar + current track).
-> 2. `landing.png` — screenshot the landing page hero.
-> Then delete this note.
+![VenIQ editor](./docs/editor1.jpg)
+![VenIQ editor](./docs/editor2.jpg)
+![VenIQ landing](./docs/landing.jpg)
 
 ---
 
