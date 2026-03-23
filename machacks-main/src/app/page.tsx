@@ -288,7 +288,7 @@ export default function LandingPage() {
       </nav>
 
       <AnimatePresence>
-        {user && welcomeOpen && isReady ? (
+        {user && welcomeOpen ? (
           <motion.div
             key="welcome"
             initial={{ opacity: 0, y: -12 }}
@@ -374,6 +374,9 @@ export default function LandingPage() {
           </div>
         </section>
 
+        {/* Features — dark cards, serif titles, staggered motion */}
+        <FeaturesSection />
+
         {/* Use Cases */}
         <section id="use-cases" className="w-full border-t border-white/5 bg-black scroll-mt-20">
           <div className="w-full max-w-[1200px] mx-auto px-6 py-28">
@@ -430,8 +433,24 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Features — dark cards, serif titles, staggered motion */}
-        <FeaturesSection />
+const AnimatedEqualizer = () => {
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+  return (
+    <div className="absolute bottom-0 left-0 right-0 h-full flex items-end justify-between px-2 opacity-60 pointer-events-none z-0 overflow-hidden">
+      {Array.from({ length: 40 }).map((_, i) => (
+        <motion.div
+          key={i}
+          className="w-[2%] mx-[0.5%] bg-gradient-to-t from-indigo-500 via-purple-500 to-fuchsia-500 rounded-t-full shadow-[0_0_30px_rgba(168,85,247,0.4)]"
+          animate={{ height: ["20%", `${40 + (i * 37 + 13) % 60}%`, "10%", `${20 + (i * 53 + 7) % 70}%`, "30%"] }}
+          transition={{ duration: 2 + (i % 5) * 0.6, repeat: Infinity, repeatType: "mirror", ease: "easeInOut", delay: (i % 7) * 0.28 }}
+          style={{ height: "20%" }}
+        />
+      ))}
+    </div>
+  );
+};
 
         {/* Final CTA */}
         <section className="w-full py-40 flex flex-col items-center text-center border-t border-white/5 bg-[radial-gradient(circle_at_50%_50%,rgba(99,102,241,0.05),transparent)] relative z-10">
@@ -448,35 +467,3 @@ export default function LandingPage() {
   );
 }
 
-const AnimatedEqualizer = () => {
-  // Use a stable state to prevent hydration mismatches with random heights
-  const [mounted, setMounted] = React.useState(false);
-
-  React.useEffect(() => setMounted(true), []);
-
-  if (!mounted) return null;
-
-  return (
-    <div className="absolute bottom-0 left-0 right-0 h-full flex items-end justify-between px-2 opacity-60 pointer-events-none z-0 overflow-hidden">
-      {Array.from({ length: 40 }).map((_, i) => (
-        <motion.div
-          key={i}
-          className="w-[2%] mx-[0.5%] bg-gradient-to-t from-indigo-500 via-purple-500 to-fuchsia-500 rounded-t-full shadow-[0_0_30px_rgba(168,85,247,0.4)]"
-          animate={{
-            height: ["20%", `${Math.random() * 60 + 40}%`, "10%", `${Math.random() * 80 + 20}%`, "30%"],
-          }}
-          transition={{
-            duration: Math.random() * 3 + 2,
-            repeat: Infinity,
-            repeatType: "mirror",
-            ease: "easeInOut",
-            delay: Math.random() * 2,
-          }}
-          style={{
-            height: "20%"
-          }}
-        />
-      ))}
-    </div>
-  );
-};

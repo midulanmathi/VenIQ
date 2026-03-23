@@ -2,34 +2,74 @@
 Crowd Scene Analysis Service — two modes
 
 Club mode (two-stage pipeline):
-  Stage 1 (Gemini 2.5 Flash, vision): frame → plain-text crowd description
+  Stage 1 (Groq llama-4 vision): frame → plain-text crowd description
   Stage 2 (keyword scorer): description → { sentiment, confidence, energy }
 
-Lock In mode (single Gemini call):
-  Gemini reads one person's body language and emotion, returns structured JSON
+Lock In mode (single Groq call):
+  Reads one person's body language and emotion, returns structured JSON
   including a coach_message tailored to their state.
 """
 
-import base64
 import json
 import os
 import random
 import time
 
 
-def _gemini_generate(model, contents, retries: int = 2, backoff: float = 8.0):
-    """Call model.generate_content with simple retry on 429."""
+def _groq_generate(prompt: str, image_b64: str, retries: int = 2, backoff: float = 5.0) -> str:
+    """
+    Call Groq llama-4-scout vision with retry on rate limit.
+    Returns the raw text response.
+    """
+    api_key = os.getenv("GROQ_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY not set")
+
+    from groq import Groq
+    client = Groq(api_key=api_key)
+
     for attempt in range(retries):
         try:
-            return model.generate_content(contents)
+            response = client.chat.completions.create(
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                            },
+                            {"type": "text", "text": prompt},
+                        ],
+                    }
+                ],
+                max_tokens=600,
+                temperature=0.2,
+            )
+            return response.choices[0].message.content.strip()
         except Exception as e:
-            if attempt < retries - 1 and "429" in str(e):
+            err = str(e)
+            if attempt < retries - 1 and ("429" in err or "rate" in err.lower()):
                 time.sleep(backoff)
                 continue
             raise
 
+
+def _parse_json(text: str) -> dict:
+    """Strip markdown fences and parse JSON."""
+    t = text.strip()
+    if "```" in t:
+        # Extract content between first { and last }
+        start = t.find("{")
+        end   = t.rfind("}") + 1
+        if start != -1 and end > start:
+            t = t[start:end]
+    return json.loads(t)
+
+
 DEFAULT_SENTIMENT = "calm"
-DEFAULT_ENERGY = 5
+DEFAULT_ENERGY    = 5
 
 # ── Lock In mode: fallback coach messages per emotion ─────────────────────────
 
@@ -69,7 +109,8 @@ def _fallback_message(emotion: str) -> str:
     pool = _COACH_MESSAGES.get(emotion, _COACH_MESSAGES["focused"])
     return random.choice(pool)
 
-# Signals that indicate high crowd energy / party behaviour
+
+# Signals for the keyword-based fallback scorer (used when API key missing)
 _PARTY_SIGNALS = [
     "standing", "stand up", "stood up", "on their feet",
     "raising hand", "raised hand", "hands up", "hand in the air",
@@ -85,7 +126,6 @@ _PARTY_SIGNALS = [
     "smiling broadly", "big smiles",
 ]
 
-# Signals that indicate low crowd energy / calm behaviour
 _CALM_SIGNALS = [
     "sitting", "seated", "sitting down",
     "heads down", "head down", "looking down",
@@ -99,7 +139,7 @@ _CALM_SIGNALS = [
 
 
 def _mp_face_hint(mp: dict) -> str:
-    """Format MediaPipe face features as a natural-language hint for Gemini."""
+    """Format MediaPipe face features as a natural-language hint."""
     if not mp:
         return ""
     parts = []
@@ -117,11 +157,11 @@ def _mp_face_hint(mp: dict) -> str:
     emotion = mp.get("suggested_emotion")
     if emotion:
         parts.append(f"suggested emotion from landmarks: {emotion}")
-    return "MediaPipe face data: " + ", ".join(parts) + "." if parts else ""
+    return ("MediaPipe face data: " + ", ".join(parts) + ".") if parts else ""
 
 
 def _mp_pose_hint(mp: dict) -> str:
-    """Format MediaPipe pose features as a hint for Gemini."""
+    """Format MediaPipe pose features as a hint."""
     if not mp:
         return ""
     parts = []
@@ -134,96 +174,126 @@ def _mp_pose_hint(mp: dict) -> str:
     mode = mp.get("suggested_mode")
     if mode:
         parts.append(f"scene type suggests: {mode}")
-    return "MediaPipe pose data: " + ", ".join(parts) + "." if parts else ""
+    return ("MediaPipe pose data: " + ", ".join(parts) + ".") if parts else ""
 
+
+# ── Prompt templates ──────────────────────────────────────────────────────────
+
+_AUTO_PROMPT = """\
+Analyze this webcam frame. Count the number of people visible.{mp_line}
+
+Focus ONLY on body language, movement, posture, and group energy as they relate to music. Do NOT comment on physical appearance, clothing, hair, or ethnicity.
+
+Return ONLY a valid JSON object. Use one of these two schemas:
+
+If 1-4 people (small group or individual):
+{{"scene_type":"study","description":"1-2 sentences: posture and energy as a music listener",\
+"emotion":"focused|happy|tired|stressed","energy":5,"confidence":0.8,\
+"vibe_tags":["focused","lo-fi","steady"],\
+"coach_message":"1-2 sentence motivational or calming message"}}
+
+If 5 or more people (large crowd):
+{{"scene_type":"club","description":"1-2 sentences: group activity and musical atmosphere",\
+"sentiment":"party|calm|focused|happy","energy":5,"confidence":0.8,\
+"vibe_tags":["energetic","danceable","euphoric"]}}
+
+Emotion/sentiment guide:
+  focused = working steadily, heads down — vibe_tags: focused, steady, lo-fi, deep work, study, minimal
+  happy = smiling, animated, social — vibe_tags: joyful, upbeat, feel-good, bright, fun, positive
+  tired = slumped, low energy — vibe_tags: calm, ambient, gentle, quiet, slow, soothing, meditative
+  stressed = tense, fidgeting — vibe_tags: calm, ambient, peaceful, tranquil, soothing, still
+  party = dancing, cheering — vibe_tags: energetic, dancing, euphoric, rave, hype, anthemic
+  calm = seated, relaxed — vibe_tags: relaxed, mellow, warm, chill, moderate
+
+vibe_tags: 3-6 words from: energetic, dancing, euphoric, festival, rave, hype, loud, anthemic, chill, hip-hop, smooth, cool, funky, groovy, feel-good, nostalgic, joyful, danceable, driving, indie, dramatic, epic, peaceful, classical, meditative, tranquil, gentle, still, quiet, melancholic, introspective, atmospheric, minimal, focused, lo-fi, study, deep work, steady, contemplative, upbeat, sunny, optimistic, warm, bright, playful, carefree, celebratory, festive
+
+Energy: 1=very still/quiet, 10=dancing/cheering/highly energetic
+
+Return only the JSON. No markdown."""
+
+_INDIVIDUAL_PROMPT = """\
+Analyze the person in this image. Focus on body language, posture, and energy level as indicators of their study or work state. Do NOT comment on physical appearance, clothing, hair, or ethnicity.{mp_line}
+
+Return ONLY a valid JSON object:
+{{"description":"1-2 sentences: posture and energy as they relate to focus and music mood",\
+"emotion":"focused|happy|tired|stressed","energy":5,"confidence":0.8,\
+"vibe_tags":["focused","lo-fi","study"],\
+"coach_message":"1-2 sentences motivating or calming them"}}
+
+Emotion guide: focused=upright/engaged/steady work, happy=smiling/animated/positive, tired=slumped/head drooping/yawning, stressed=tense/fidgeting/furrowed brow
+vibe_tags: 3-5 descriptors for the music that would suit them right now.
+  focused → focused, steady, lo-fi, deep work, study, minimal, contemplative
+  happy → joyful, upbeat, feel-good, bright, fun, positive, sunny
+  tired → calm, ambient, gentle, quiet, soothing, slow, meditative
+  stressed → peaceful, tranquil, calm, still, soothing, ambient
+Coach guide: focused=affirm the flow, happy=celebrate and sustain, tired=suggest break/stretch, stressed=breathe+one small step
+
+Return only the JSON. No markdown."""
+
+_SCENE_PROMPT = """\
+Describe what the people in this image are doing in 1-2 sentences.{mp_line}
+Focus on their body language, movement, and energy level.
+Be specific: are they sitting or standing? Are any hands raised?
+Are people talking, laughing, cheering, or quietly working?
+Do NOT comment on physical appearance, clothing, or ethnicity.
+Reply with plain text only — no JSON, no labels."""
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def analyze_auto(image_b64: str, mediapipe: dict | None = None) -> dict:
     """
-    Auto mode: single Gemini call that detects scene type (1 person vs group)
+    Auto mode: single Groq call that detects scene type (1 person vs group)
     and returns the appropriate analysis fields.
 
     Returns all standard fields plus:
         "detected_mode": "study" | "club"
     """
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    if not api_key:
-        result = describe_crowd(image_b64)
-        result["detected_mode"] = "club"
-        return result
+    mp      = mediapipe or {}
+    mp_hint = _mp_pose_hint(mp) or _mp_face_hint(mp)
+    mp_line = f"\n\nAdditional sensor data from the browser: {mp_hint}" if mp_hint else ""
+
+    prompt = _AUTO_PROMPT.format(mp_line=mp_line)
 
     try:
-        import google.generativeai as genai
-
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
-        image_bytes = base64.b64decode(image_b64)
-
-        mp      = mediapipe or {}
-        mp_hint = _mp_pose_hint(mp) or _mp_face_hint(mp)
-        mp_line = f"\n\nAdditional sensor data from the browser: {mp_hint}" if mp_hint else ""
-
-        prompt = (
-            "Analyze this webcam frame. Count the number of people visible." + mp_line + """
-
-Return ONLY a valid JSON object. Use one of these two schemas:
-
-If 1-4 people (small group or individual):
-{"scene_type":"study","description":"1-2 sentences: posture, expression, body language",
- "emotion":"focused|happy|tired|stressed","energy":5,"confidence":0.8,
- "coach_message":"1-2 sentence motivational or calming message"}
-
-If 5 or more people (large crowd):
-{"scene_type":"club","description":"1-2 sentences: group activity, body language, energy",
- "sentiment":"party|calm","energy":5,"confidence":0.8}
-
-Emotion guide: focused=working steadily, happy=smiling/positive, tired=slumped/yawning, stressed=tense/overwhelmed
-Energy: 1=very still/quiet, 10=dancing/cheering/highly energetic
-
-Return only the JSON. No markdown."""
-        )
-
-        response = _gemini_generate(
-            model, [{"mime_type": "image/jpeg", "data": image_bytes}, prompt]
-        )
-
-        text = response.text.strip()
-        if text.startswith("```"):
-            text = text[text.index("{"):]
-            text = text[:text.rindex("}") + 1]
-
-        data = json.loads(text)
-        scene_type = data.get("scene_type", "club")
-
-        if scene_type == "study":
-            emotion = data.get("emotion", "focused")
-            return {
-                "description":   data.get("description", ""),
-                "energy":        int(data.get("energy", 5)),
-                "sentiment":     emotion,
-                "confidence":    float(data.get("confidence", 0.7)),
-                "coach_message": data.get("coach_message") or _fallback_message(emotion),
-                "detected_mode": "study",
-            }
-        else:
-            return {
-                "description":   data.get("description", ""),
-                "energy":        int(data.get("energy", 5)),
-                "sentiment":     data.get("sentiment", "calm"),
-                "confidence":    float(data.get("confidence", 0.7)),
-                "coach_message": None,
-                "detected_mode": "club",
-            }
-
+        text = _groq_generate(prompt, image_b64)
+        data = _parse_json(text)
     except Exception as e:
-        result = describe_crowd(image_b64)
+        # Groq unavailable — fall back to keyword pipeline
+        result = describe_crowd(image_b64, mediapipe)
         result["detected_mode"] = "club"
         result["coach_message"] = None
         return result
 
+    scene_type = data.get("scene_type", "club")
+    vibe_tags  = data.get("vibe_tags") or []
+
+    if scene_type == "study":
+        emotion = data.get("emotion", "focused")
+        return {
+            "description":   data.get("description", ""),
+            "energy":        int(data.get("energy", 5)),
+            "sentiment":     emotion,
+            "confidence":    float(data.get("confidence", 0.7)),
+            "coach_message": data.get("coach_message") or _fallback_message(emotion),
+            "detected_mode": "study",
+            "vibe_tags":     vibe_tags,
+        }
+    else:
+        return {
+            "description":   data.get("description", ""),
+            "energy":        int(data.get("energy", 5)),
+            "sentiment":     data.get("sentiment", "calm"),
+            "confidence":    float(data.get("confidence", 0.7)),
+            "coach_message": None,
+            "detected_mode": "club",
+            "vibe_tags":     vibe_tags,
+        }
+
 
 def describe_individual(image_b64: str, mediapipe: dict | None = None) -> dict:
     """
-    Lock In mode: analyze a single person's emotional/focus state via Gemini.
+    Lock In mode: analyze a single person's emotional/focus state.
 
     Returns:
         {
@@ -231,64 +301,39 @@ def describe_individual(image_b64: str, mediapipe: dict | None = None) -> dict:
             "energy":        3,
             "sentiment":     "tired",       # focused | happy | tired | stressed
             "confidence":    0.85,
-            "coach_message": "Stand up, take 5 deep breaths, then come back stronger."
+            "coach_message": "Stand up, take 5 deep breaths, then come back stronger.",
+            "vibe_tags":     ["calm", "ambient", "gentle"],
         }
     """
-    api_key = os.getenv("GEMINI_API_KEY", "")
+    api_key = os.getenv("GROQ_API_KEY", "")
     if not api_key:
         return {
-            "description":   "Analysis unavailable: GEMINI_API_KEY not set",
+            "description":   "Analysis unavailable: GROQ_API_KEY not set",
             "energy":        5,
             "sentiment":     "focused",
             "confidence":    0.5,
             "coach_message": _fallback_message("focused"),
+            "vibe_tags":     [],
         }
 
+    mp      = mediapipe or {}
+    mp_hint = _mp_face_hint(mp)
+    mp_line = f"\n\nAdditional sensor data from MediaPipe face mesh: {mp_hint}" if mp_hint else ""
+
+    prompt = _INDIVIDUAL_PROMPT.format(mp_line=mp_line)
+
     try:
-        import google.generativeai as genai
-
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
-        image_bytes = base64.b64decode(image_b64)
-
-        mp      = mediapipe or {}
-        mp_hint = _mp_face_hint(mp)
-        mp_line = f"\n\nAdditional sensor data from MediaPipe face mesh: {mp_hint}" if mp_hint else ""
-
-        prompt = (
-            "Analyze the person in this image who appears to be studying or working." + mp_line + """
-
-Return ONLY a valid JSON object:
-{"description":"1-2 sentences: posture, facial expression, body language",
- "emotion":"focused|happy|tired|stressed","energy":5,"confidence":0.8,
- "coach_message":"1-2 sentences motivating or calming them"}
-
-Emotion guide: focused=working steadily upright, happy=smiling/positive, tired=slumped/drooping/yawning, stressed=tense/furrowed/fidgeting
-Coach guide: focused=affirm, happy=celebrate energy, tired=suggest stretch, stressed=calm+small step
-
-Return only the JSON. No markdown."""
-        )
-
-        response = _gemini_generate(
-            model, [{"mime_type": "image/jpeg", "data": image_bytes}, prompt]
-        )
-
-        text = response.text.strip()
-        if text.startswith("```"):
-            text = text[text.index("{"):]
-            text = text[:text.rindex("}") + 1]
-
-        data = json.loads(text)
+        text = _groq_generate(prompt, image_b64)
+        data = _parse_json(text)
         emotion = data.get("emotion", "focused")
-
         return {
             "description":   data.get("description", ""),
             "energy":        int(data.get("energy", 5)),
             "sentiment":     emotion,
             "confidence":    float(data.get("confidence", 0.7)),
             "coach_message": data.get("coach_message") or _fallback_message(emotion),
+            "vibe_tags":     data.get("vibe_tags") or [],
         }
-
     except Exception as e:
         return {
             "description":   f"Analysis error: {e}",
@@ -296,88 +341,57 @@ Return only the JSON. No markdown."""
             "sentiment":     "focused",
             "confidence":    0.5,
             "coach_message": _fallback_message("focused"),
+            "vibe_tags":     [],
         }
 
 
 def describe_crowd(image_b64: str, mediapipe: dict | None = None) -> dict:
     """
-    Full pipeline: webcam frame → description → sentiment + confidence.
+    Fallback pipeline (no API key): webcam frame → description → keyword scoring.
 
     Returns:
         {
             "description": "Several people are sitting quietly...",
             "energy":      3,
             "sentiment":   "calm",
-            "confidence":  0.82      # 0.0–1.0
+            "confidence":  0.82,
+            "vibe_tags":   [],
         }
     """
     description = _describe_scene(image_b64, mediapipe or {})
     sentiment, confidence = _extract_sentiment(description)
     energy = _estimate_energy(description, sentiment)
 
-    # Boost energy if MediaPipe detected hands raised
     mp = mediapipe or {}
     if mp.get("hands_raised", 0) > 0:
         energy = min(10, energy + 1)
 
     return {
         "description": description,
-        "energy": energy,
-        "sentiment": sentiment,
-        "confidence": confidence,
+        "energy":      energy,
+        "sentiment":   sentiment,
+        "confidence":  confidence,
         "coach_message": None,
+        "vibe_tags":   [],
     }
 
 
-# ── Stage 1: Gemini Vision ────────────────────────────────────────────────────
+# ── Fallback: keyword-based scene description + scoring ───────────────────────
 
 def _describe_scene(image_b64: str, mediapipe: dict | None = None) -> str:
-    """
-    Ask Gemini to describe what the people in the frame are doing.
-    Returns plain text — no sentiment classification here.
-    """
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    if not api_key:
-        return "Scene analysis unavailable: GEMINI_API_KEY not set"
+    mp      = mediapipe or {}
+    mp_hint = _mp_pose_hint(mp)
+    mp_line = f" Additional sensor data: {mp_hint}" if mp_hint else ""
+    prompt  = _SCENE_PROMPT.format(mp_line=mp_line)
 
     try:
-        import google.generativeai as genai
-
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
-
-        image_bytes = base64.b64decode(image_b64)
-
-        mp      = mediapipe or {}
-        mp_hint = _mp_pose_hint(mp)
-        mp_line = f" Additional sensor data: {mp_hint}" if mp_hint else ""
-
-        prompt = (
-            "Describe what the people in this image are doing in 1-2 sentences. "
-            "Focus on their body language, movement, and energy level. "
-            "Be specific: are they sitting or standing? Are any hands raised? "
-            "Are people talking, laughing, cheering, or quietly working? "
-            "Reply with plain text only — no JSON, no labels." + mp_line
-        )
-
-        response = _gemini_generate(
-            model, [{"mime_type": "image/jpeg", "data": image_bytes}, prompt]
-        )
-        return response.text.strip()
-
+        return _groq_generate(prompt, image_b64)
     except Exception as e:
         return f"Scene analysis unavailable: {e}"
 
 
-# ── Stage 2: Keyword-based sentiment scorer ───────────────────────────────────
-
 def _extract_sentiment(description: str) -> tuple[str, float]:
-    """
-    Score the description against party/calm keyword lists.
-    Returns (sentiment, confidence) where confidence is 0.0–1.0.
-    """
     text = description.lower()
-
     party_hits = sum(1 for kw in _PARTY_SIGNALS if kw in text)
     calm_hits  = sum(1 for kw in _CALM_SIGNALS  if kw in text)
     total = party_hits + calm_hits
@@ -386,7 +400,6 @@ def _extract_sentiment(description: str) -> tuple[str, float]:
         return DEFAULT_SENTIMENT, 0.5
 
     party_ratio = party_hits / total
-
     if party_ratio >= 0.5:
         return "party", round(party_ratio, 2)
     else:
@@ -394,10 +407,6 @@ def _extract_sentiment(description: str) -> tuple[str, float]:
 
 
 def _estimate_energy(description: str, sentiment: str) -> int:
-    """
-    Estimate energy 1–10 from keyword density in the description.
-    Party sentiment starts at 6, calm at 1.
-    """
     text = description.lower()
     party_hits = sum(1 for kw in _PARTY_SIGNALS if kw in text)
 

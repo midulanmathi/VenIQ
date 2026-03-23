@@ -60,6 +60,13 @@ export default function LiveSessionPage() {
     const activeSide = useRef<0 | 1>(0);
     const hasPlayedRef = useRef(false);
 
+    // Auto-advance: track current mood + schedule next song when preview ends
+    const currentMoodRef   = useRef<string>("None");
+    const autoNextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const loadTrackRef     = useRef<((t: Track) => Promise<void>) | null>(null);
+    // Frame diff: store previous 32×32 frame to skip Gemini when scene hasn't changed
+    const prevFrameDataRef = useRef<Uint8ClampedArray | null>(null);
+
     // "auto" = Gemini decides each frame; "club"/"study" = user locked it
     const [appMode,         setAppMode]         = useState<"auto" | "club" | "study">("auto");
     const [detectedMode,    setDetectedMode]    = useState<"club" | "study" | null>(null);
@@ -95,6 +102,9 @@ export default function LiveSessionPage() {
         const tick = setInterval(() => setCountdown(p => Math.max(0, p - 1)), 1000);
         return () => clearInterval(tick);
     }, [isAnalyzing, isSessionActive]);
+
+    // Keep currentMoodRef in sync for use inside timer callbacks
+    useEffect(() => { currentMoodRef.current = currentMood; }, [currentMood]);
 
     // Flash when mood changes
     const prevMoodRef = useRef(currentMood);
@@ -183,7 +193,7 @@ export default function LiveSessionPage() {
         const outgoingFilter = side === 0 ? filterA.current! : filterB.current!;
 
         await incoming.load(previewUrl);
-        incoming.loop = true;
+        incoming.loop = false;
 
         incomingVol.volume.value = -80;
         incomingFilter.type = "lowpass";
@@ -225,8 +235,23 @@ export default function LiveSessionPage() {
 
     const loadTrack = useCallback(async (track: Track) => {
         setCurrentTrack(track);
-        if (track.preview_url) await loadDeezerTrack(track.preview_url);
+        if (autoNextTimerRef.current) { clearTimeout(autoNextTimerRef.current); autoNextTimerRef.current = null; }
+        if (track.preview_url) {
+            await loadDeezerTrack(track.preview_url);
+            // Auto-advance ~2s before the 30s Deezer preview ends
+            autoNextTimerRef.current = setTimeout(async () => {
+                const mood = currentMoodRef.current;
+                if (!mood || mood === "None" || mood === "Scanning…") return;
+                try {
+                    const next = await overrideSentiment(mood);
+                    if (next) await loadTrackRef.current?.(next);
+                } catch { /* ignore — next interval will retry */ }
+            }, 28000);
+        }
     }, [loadDeezerTrack]);
+
+    // Keep ref in sync so the timer callback always calls the latest loadTrack
+    useEffect(() => { loadTrackRef.current = loadTrack; }, [loadTrack]);
 
     const skipTrack = useCallback(async () => {
         if (queue.length === 0) return;
@@ -251,6 +276,30 @@ export default function LiveSessionPage() {
         if (overrideLock) return;
         const frame = captureFrame();
         if (!frame) return;
+
+        // Frame diff pre-check: skip Gemini when the scene hasn't changed
+        const video = videoRef.current;
+        if (video && video.readyState >= 2) {
+            const sc = document.createElement("canvas");
+            sc.width = 32; sc.height = 32;
+            const sctx = sc.getContext("2d");
+            if (sctx) {
+                sctx.drawImage(video, 0, 0, 32, 32);
+                const newData = sctx.getImageData(0, 0, 32, 32).data;
+                const prev = prevFrameDataRef.current;
+                if (prev) {
+                    let diffPixels = 0;
+                    for (let i = 0; i < newData.length; i += 4) {
+                        if (Math.abs(newData[i] - prev[i]) + Math.abs(newData[i + 1] - prev[i + 1]) + Math.abs(newData[i + 2] - prev[i + 2]) > 30) diffPixels++;
+                    }
+                    // < 5% of 32×32 pixels changed → scene is stable, skip API call
+                    const mood = currentMoodRef.current;
+                    if (diffPixels / 1024 < 0.05 && mood !== "None" && mood !== "Scanning…") return;
+                }
+                prevFrameDataRef.current = newData;
+            }
+        }
+
         setIsAnalyzing(true);
         setLiveDescription("Scanning…");
         try {
@@ -307,6 +356,8 @@ export default function LiveSessionPage() {
         if (stream) stream.getTracks().forEach((t) => t.stop());
         if (intervalRef.current) clearInterval(intervalRef.current);
         intervalRef.current = null;
+        if (autoNextTimerRef.current) { clearTimeout(autoNextTimerRef.current); autoNextTimerRef.current = null; }
+        prevFrameDataRef.current = null;
 
         try { playerA.current?.stop(); } catch { /* already stopped */ }
         try { playerB.current?.stop(); } catch { /* already stopped */ }
@@ -331,6 +382,7 @@ export default function LiveSessionPage() {
     };
 
     const forceMode = async (mode: "party" | "calm") => {
+        if (autoNextTimerRef.current) { clearTimeout(autoNextTimerRef.current); autoNextTimerRef.current = null; }
         setIsOverriding(true);
         try {
             const track = await overrideSentiment(mode);
@@ -390,6 +442,7 @@ export default function LiveSessionPage() {
         return () => {
             if (stream) stream.getTracks().forEach((t) => t.stop());
             if (intervalRef.current) clearInterval(intervalRef.current);
+            if (autoNextTimerRef.current) clearTimeout(autoNextTimerRef.current);
             stopMpLoop();
             try { playerA.current?.stop(); } catch { /* ok */ }
             try { playerB.current?.stop(); } catch { /* ok */ }
@@ -404,11 +457,6 @@ export default function LiveSessionPage() {
     const emotionCfg = EMOTION_CONFIG[currentMood] ?? { emoji: "🎵", color: "text-white/60", label: currentMood };
 
     const energy = currentEnergy ?? 0;
-    const eqBars = Array.from({ length: 14 }, (_, i) => {
-        const base = isSessionActive ? (energy / 10) * 55 : 5;
-        const jitter = isSessionActive ? Math.sin(i * 2.1 + Date.now() / 400) * 10 : 0;
-        return Math.max(6, Math.min(85, base + jitter));
-    });
 
     return (
         <div className="flex min-h-[100dvh] flex-col bg-zinc-950">
@@ -546,23 +594,29 @@ export default function LiveSessionPage() {
                         )}
                         {isSessionActive && (
                             <div className="pointer-events-none absolute bottom-0 left-0 right-0 flex h-16 items-end justify-center gap-0.5 bg-gradient-to-t from-black/70 to-transparent px-6 pb-2">
-                                {eqBars.map((h, i) => (
-                                    <div
-                                        key={i}
-                                        className={`w-[5%] max-w-2 rounded-t bg-gradient-to-t ${
-                                            isStudy ? "from-blue-600/80 to-blue-500/40" :
-                                            currentMood === "party" ? "from-fuchsia-600/80 to-pink-500/40" : "from-indigo-600/80 to-violet-500/40"
-                                        }`}
-                                        style={{
-                                            height: `${h}%`,
-                                            filter: isStudy
-                                                ? "drop-shadow(0 0 4px rgba(96,165,250,0.6))"
-                                                : currentMood === "party"
-                                                ? "drop-shadow(0 0 4px rgba(217,70,239,0.7))"
-                                                : "drop-shadow(0 0 4px rgba(129,140,248,0.6))",
-                                        }}
-                                    />
-                                ))}
+                                {Array.from({ length: 14 }).map((_, i) => {
+                                    const base = Math.max(8, (energy / 10) * 55);
+                                    const lo = Math.max(5, base - 20);
+                                    const hi = Math.min(88, base + 22);
+                                    return (
+                                        <motion.div
+                                            key={i}
+                                            animate={{ height: [`${lo}%`, `${hi}%`] }}
+                                            transition={{ duration: 0.8 + (i % 5) * 0.26, repeat: Infinity, repeatType: "mirror", ease: "easeInOut", delay: i * 0.07 }}
+                                            className={`w-[5%] max-w-2 rounded-t bg-gradient-to-t ${
+                                                isStudy ? "from-blue-600/80 to-blue-500/40" :
+                                                currentMood === "party" ? "from-fuchsia-600/80 to-pink-500/40" : "from-indigo-600/80 to-violet-500/40"
+                                            }`}
+                                            style={{
+                                                filter: isStudy
+                                                    ? "drop-shadow(0 0 4px rgba(96,165,250,0.6))"
+                                                    : currentMood === "party"
+                                                    ? "drop-shadow(0 0 4px rgba(217,70,239,0.7))"
+                                                    : "drop-shadow(0 0 4px rgba(129,140,248,0.6))",
+                                            }}
+                                        />
+                                    );
+                                })}
                             </div>
                         )}
                     </div>

@@ -1,15 +1,172 @@
 """
-Deezer Search Service
+Deezer Service
 
-Uses Deezer's public REST API (no auth required) to search for a track
-and return its 30-second preview MP3 URL.
+search_deezer()       — search for a specific track (name + artist) → preview URL
+fetch_chart_tracks()  — pull top tracks from Deezer's public chart API by genre
+                        Results are cached in-memory for 1 hour per genre.
 
-No API key needed — free-tier public endpoint, ~unlimited for demo use.
+No API key required — Deezer's public REST endpoints are free for demo use.
 """
 
+import time
 import requests
 
 _SEARCH_URL = "https://api.deezer.com/search"
+_CHART_URL  = "https://api.deezer.com/chart/{genre_id}/tracks"
+
+# Deezer genre IDs used for chart-based selection
+GENRE_ALL         = 0
+GENRE_POP         = 169
+GENRE_HIP_HOP     = 152
+GENRE_ELECTRONIC  = 116
+GENRE_DANCE       = 165
+GENRE_CLASSICAL   = 85
+GENRE_ALTERNATIVE = 129
+GENRE_RNB         = 173
+GENRE_ROCK        = 106
+
+# Map vibe_tags → ordered list of Deezer genre IDs (most relevant first)
+_TAG_GENRES: dict[str, list[int]] = {
+    # Party / high energy
+    "energetic":      [GENRE_ELECTRONIC, GENRE_DANCE, GENRE_HIP_HOP],
+    "dancing":        [GENRE_DANCE, GENRE_ELECTRONIC, GENRE_POP],
+    "electronic":     [GENRE_ELECTRONIC, GENRE_DANCE],
+    "rave":           [GENRE_ELECTRONIC, GENRE_DANCE],
+    "hype":           [GENRE_HIP_HOP, GENRE_ELECTRONIC],
+    "euphoric":       [GENRE_ELECTRONIC, GENRE_DANCE, GENRE_POP],
+    "festival":       [GENRE_ELECTRONIC, GENRE_DANCE],
+    "hip-hop":        [GENRE_HIP_HOP],
+    "trap":           [GENRE_HIP_HOP],
+    "loud":           [GENRE_HIP_HOP, GENRE_ELECTRONIC],
+    "intense":        [GENRE_ELECTRONIC, GENRE_HIP_HOP],
+    "driving":        [GENRE_ELECTRONIC, GENRE_ROCK],
+    "synth":          [GENRE_ELECTRONIC, GENRE_POP],
+    "anthemic":       [GENRE_ROCK, GENRE_POP],
+    "rock":           [GENRE_ROCK],
+    "indie rock":     [GENRE_ROCK, GENRE_ALTERNATIVE],
+    "chaotic":        [GENRE_ELECTRONIC, GENRE_HIP_HOP],
+    "wild":           [GENRE_HIP_HOP, GENRE_ELECTRONIC],
+    # Happy / upbeat
+    "joyful":         [GENRE_POP, GENRE_RNB],
+    "upbeat":         [GENRE_POP, GENRE_DANCE],
+    "feel-good":      [GENRE_POP, GENRE_RNB],
+    "fun":            [GENRE_POP],
+    "sunny":          [GENRE_POP],
+    "bright":         [GENRE_POP, GENRE_ALTERNATIVE],
+    "celebratory":    [GENRE_POP, GENRE_DANCE],
+    "playful":        [GENRE_POP],
+    "carefree":       [GENRE_POP],
+    "optimistic":     [GENRE_POP, GENRE_ALTERNATIVE],
+    "warm":           [GENRE_RNB, GENRE_POP],
+    "positive":       [GENRE_POP],
+    "happy":          [GENRE_POP],
+    "empowering":     [GENRE_POP, GENRE_RNB],
+    # Groovy / soulful
+    "groovy":         [GENRE_RNB, GENRE_POP],
+    "smooth":         [GENRE_RNB, GENRE_POP],
+    "soul":           [GENRE_RNB],
+    "funky":          [GENRE_RNB, GENRE_POP],
+    "chill":          [GENRE_RNB, GENRE_ALTERNATIVE],
+    "laid-back":      [GENRE_RNB],
+    "cool":           [GENRE_RNB, GENRE_HIP_HOP],
+    "mellow":         [GENRE_RNB, GENRE_ALTERNATIVE],
+    # Nostalgic / classic
+    "nostalgic":      [GENRE_ROCK, GENRE_POP],
+    "classic":        [GENRE_ROCK, GENRE_POP],
+    "danceable":      [GENRE_DANCE, GENRE_POP],
+    "indie":          [GENRE_ALTERNATIVE],
+    "festive":        [GENRE_POP, GENRE_DANCE],
+    "social":         [GENRE_POP, GENRE_DANCE],
+    # Calm / ambient
+    "peaceful":       [GENRE_CLASSICAL, GENRE_ALTERNATIVE],
+    "calm":           [GENRE_CLASSICAL, GENRE_ALTERNATIVE],
+    "ambient":        [GENRE_CLASSICAL],
+    "meditative":     [GENRE_CLASSICAL],
+    "tranquil":       [GENRE_CLASSICAL],
+    "classical":      [GENRE_CLASSICAL],
+    "gentle":         [GENRE_CLASSICAL, GENRE_ALTERNATIVE],
+    "still":          [GENRE_CLASSICAL],
+    "quiet":          [GENRE_CLASSICAL],
+    "soothing":       [GENRE_CLASSICAL],
+    "therapeutic":    [GENRE_CLASSICAL],
+    "deeply calm":    [GENRE_CLASSICAL],
+    "slow":           [GENRE_CLASSICAL, GENRE_ALTERNATIVE],
+    "melancholic":    [GENRE_ALTERNATIVE, GENRE_CLASSICAL],
+    "introspective":  [GENRE_ALTERNATIVE],
+    "atmospheric":    [GENRE_ALTERNATIVE, GENRE_ELECTRONIC],
+    "cinematic":      [GENRE_CLASSICAL, GENRE_ALTERNATIVE],
+    "contemplative":  [GENRE_ALTERNATIVE, GENRE_CLASSICAL],
+    "romantic":       [GENRE_CLASSICAL, GENRE_RNB],
+    "tender":         [GENRE_CLASSICAL, GENRE_RNB],
+    "hopeful":        [GENRE_ALTERNATIVE, GENRE_POP],
+    "emotional":      [GENRE_ALTERNATIVE, GENRE_POP],
+    "reflective":     [GENRE_ALTERNATIVE, GENRE_CLASSICAL],
+    "folk":           [GENRE_ALTERNATIVE],
+    "acoustic":       [GENRE_ALTERNATIVE],
+    # Focused / study
+    "focused":        [GENRE_ALTERNATIVE, GENRE_CLASSICAL],
+    "lo-fi":          [GENRE_ALTERNATIVE],
+    "study":          [GENRE_CLASSICAL, GENRE_ALTERNATIVE],
+    "minimal":        [GENRE_CLASSICAL, GENRE_ALTERNATIVE],
+    "steady":         [GENRE_ALTERNATIVE],
+    "deep work":      [GENRE_CLASSICAL, GENRE_ALTERNATIVE],
+    "sparse":         [GENRE_CLASSICAL],
+    "building":       [GENRE_CLASSICAL, GENRE_ELECTRONIC],
+    "flowing":        [GENRE_CLASSICAL, GENRE_ALTERNATIVE],
+    "nocturnal":      [GENRE_ELECTRONIC, GENRE_ALTERNATIVE],
+    "slow-burn":      [GENRE_ALTERNATIVE, GENRE_ELECTRONIC],
+    "piano":          [GENRE_CLASSICAL],
+    "neoclassical":   [GENRE_CLASSICAL],
+    "dramatic":       [GENRE_CLASSICAL, GENRE_ROCK],
+    "epic":           [GENRE_ROCK, GENRE_CLASSICAL],
+}
+
+
+def pick_genre_for_tags(vibe_tags: list[str]) -> int:
+    """
+    Vote on the best Deezer genre ID for the given vibe_tags.
+    Each tag casts weighted votes for its genre list (first genre = 2 pts, rest = 1 pt).
+    Returns the genre with the highest vote count.
+    """
+    from collections import Counter
+    votes: Counter = Counter()
+    for tag in vibe_tags:
+        genres = _TAG_GENRES.get(tag.lower().strip(), [GENRE_POP])
+        for i, g in enumerate(genres):
+            votes[g] += 2 if i == 0 else 1
+    return votes.most_common(1)[0][0] if votes else GENRE_ALL
+
+
+# ── Chart cache: genre_id → (timestamp, list[track_dict]) ────────────────────
+_chart_cache: dict[int, tuple[float, list[dict]]] = {}
+_CACHE_TTL = 3600  # 1 hour
+
+
+def fetch_chart_tracks(genre_id: int = GENRE_ALL, limit: int = 100) -> list[dict]:
+    """
+    Fetch top tracks from Deezer's chart for a given genre.
+    Returns a list of Deezer track dicts (each has 'id', 'title', 'artist',
+    'album', 'preview', 'link', 'rank').
+    Results are cached in memory for 1 hour.
+    """
+    now = time.time()
+    cached = _chart_cache.get(genre_id)
+    if cached:
+        ts, tracks = cached
+        if now - ts < _CACHE_TTL:
+            return tracks
+
+    url = _CHART_URL.format(genre_id=genre_id)
+    try:
+        resp = requests.get(url, params={"limit": limit}, timeout=10)
+        resp.raise_for_status()
+        tracks = resp.json().get("data", [])
+        # Only keep tracks that have a preview URL
+        tracks = [t for t in tracks if t.get("preview")]
+        _chart_cache[genre_id] = (now, tracks)
+        return tracks
+    except Exception:
+        return []
 
 
 def search_deezer(name: str, artist: str) -> dict | None:
