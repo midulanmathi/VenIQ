@@ -26,7 +26,7 @@ let faceReady = false;
 let poseReady = false;
 
 const WASM_PATH =
-  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
+  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.33/wasm";
 const FACE_MODEL =
   "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 // pose_landmarker_full required for multi-person — lite only reliably detects one
@@ -37,7 +37,7 @@ export async function initFaceLandmarker(): Promise<void> {
   if (faceReady) return;
   const vision = await FilesetResolver.forVisionTasks(WASM_PATH);
   faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: FACE_MODEL, delegate: "GPU" },
+    baseOptions: { modelAssetPath: FACE_MODEL, delegate: "CPU" },
     runningMode: "VIDEO",
     numFaces: 1,
     minFaceDetectionConfidence: 0.5,

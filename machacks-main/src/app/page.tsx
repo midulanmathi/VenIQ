@@ -20,7 +20,6 @@ import { Instrument_Serif } from "next/font/google";
 import Hero from "@/components/ui/animated-shader-hero";
 import React from "react";
 import { useAuth } from "@/contexts/auth-context";
-import { LoginHoverDropdown } from "@/components/auth/login-hover-dropdown";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -239,7 +238,7 @@ function FeaturesSection() {
 
 export default function LandingPage() {
   const router = useRouter();
-  const { user, isReady, logout } = useAuth();
+  const { user } = useAuth();
   const [welcomeOpen, setWelcomeOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -257,68 +256,34 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[#020202] text-white overflow-hidden font-sans selection:bg-indigo-500/30 selection:text-indigo-200">
       {/* Top Nav inside generic page layout */}
-      <nav className="fixed top-0 left-0 right-0 h-20 border-b border-white/5 bg-[#020202]/50 backdrop-blur-2xl z-50 flex items-center justify-between px-6 md:px-12">
+      <nav className="fixed top-0 left-0 right-0 h-20 border-b border-white/5 bg-[#020202]/50 backdrop-blur-2xl z-50 flex items-center px-6 md:px-12">
         <Link href="/" className="flex items-center gap-3 group cursor-pointer">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform">
             <span className="text-white font-black text-2xl uppercase tracking-tighter">V</span>
           </div>
           <span className="font-black text-2xl tracking-tight bg-gradient-to-r from-violet-300 via-fuchsia-300 to-pink-300 bg-clip-text text-transparent">Ven<span className="text-white">IQ</span></span>
         </Link>
-        <div className="hidden md:flex items-center gap-8 text-sm font-bold uppercase tracking-widest text-white/50">
+        <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-8 text-sm font-bold uppercase tracking-widest text-white/50">
           <a
             href="#features"
             className="hover:text-white cursor-pointer transition-colors"
             onClick={(e) => {
               e.preventDefault();
-              document.getElementById("features")?.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-              });
+              document.getElementById("features")?.scrollIntoView({ behavior: "smooth", block: "start" });
             }}
           >
             Features
           </a>
-          <span className="hover:text-white cursor-pointer transition-colors">Use Cases</span>
-          <span className="hover:text-white cursor-pointer transition-colors">Pricing</span>
-        </div>
-        <div className="flex items-center gap-3 sm:gap-6">
-          {!isReady ? (
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-24 animate-pulse rounded-full bg-white/10" />
-              <div className="hidden h-10 w-28 animate-pulse rounded-full bg-white/10 sm:block" />
-            </div>
-          ) : user ? (
-            <>
-              <span className="hidden min-w-0 sm:block">
-                <span className="block text-[10px] font-bold uppercase tracking-widest text-indigo-400/90">
-                  Welcome
-                </span>
-                <span className="block truncate font-mono text-sm font-semibold text-white/90">
-                  {user.email ?? user.username}
-                </span>
-              </span>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  logout();
-                  setWelcomeOpen(false);
-                  toast.message("Signed out", { description: "See you next time." });
-                }}
-                className="h-9 rounded-full px-4 text-xs font-bold uppercase tracking-widest text-white/50 hover:bg-white/10 hover:text-white"
-              >
-                Sign out
-              </Button>
-            </>
-          ) : (
-            <LoginHoverDropdown />
-          )}
-          <Button
-            onClick={() => router.push('/editor')}
-            className="rounded-full bg-white text-black hover:bg-gray-100 font-black uppercase text-[10px] tracking-widest h-10 px-6 transition-all hover:scale-105 active:scale-95"
+          <a
+            href="#use-cases"
+            className="hover:text-white cursor-pointer transition-colors"
+            onClick={(e) => {
+              e.preventDefault();
+              document.getElementById("use-cases")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
           >
-            Get Started
-          </Button>
+            Use Cases
+          </a>
         </div>
       </nav>
 
@@ -403,6 +368,62 @@ export default function LandingPage() {
                     <h4 className="text-xl font-bold text-white mb-2">{item.title}</h4>
                     <p className="text-sm text-white/40 leading-relaxed font-medium">{item.desc}</p>
                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Use Cases */}
+        <section id="use-cases" className="w-full border-t border-white/5 bg-black scroll-mt-20">
+          <div className="w-full max-w-[1200px] mx-auto px-6 py-28">
+            <div className="text-center mb-16">
+              <p className="text-[2.5rem] font-black uppercase leading-tight tracking-[0.35em] text-violet-300 antialiased md:text-[3rem] lg:text-[3.75rem]">
+                Use Cases
+              </p>
+              <p className="mt-4 text-white/40 max-w-[520px] mx-auto text-base">
+                VenIQ adapts to the room — whether that&apos;s a crowded dance floor or a quiet study hall.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              {[
+                {
+                  title: "Live Events & Clubs",
+                  desc: "Track the energy of a crowd in real time. When the room heats up or cools down, VenIQ queues the right track automatically — so the DJ never loses the vibe.",
+                  icon: "🎧",
+                  tag: "CLUB MODE",
+                },
+                {
+                  title: "Study & Focus Sessions",
+                  desc: "Lock In mode watches a single person's posture and expression via face mesh. Tired? Get a calm ambient track. Focused? Stay in flow state with steady lo-fi beats.",
+                  icon: "📚",
+                  tag: "STUDY MODE",
+                },
+                {
+                  title: "Wellness & Therapy",
+                  desc: "Therapeutic audio layers map emotional states to curated genres and tempos — providing gentle, context-aware music that supports mood without overwhelming the senses.",
+                  icon: "🌿",
+                  tag: "THERAPEUTIC",
+                },
+                {
+                  title: "Accessible Venues",
+                  desc: "Built for busy booths and low-friction operation. Large type, clear hierarchy, and a one-tap override so staff can always take control — no training required.",
+                  icon: "♿",
+                  tag: "ACCESSIBLE",
+                },
+              ].map((item) => (
+                <div
+                  key={item.tag}
+                  className="flex flex-col gap-4 p-8 rounded-[28px] border border-white/[0.07] bg-[#0a0a0a] hover:border-violet-500/25 hover:bg-[#0e0e0e] transition-all duration-300"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-3xl">{item.icon}</span>
+                    <span className="rounded-full border border-violet-500/20 bg-violet-950/30 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.22em] text-violet-300/45">
+                      {item.tag}
+                    </span>
+                  </div>
+                  <h3 className="text-xl font-bold text-white">{item.title}</h3>
+                  <p className="text-sm text-white/45 leading-relaxed">{item.desc}</p>
                 </div>
               ))}
             </div>
