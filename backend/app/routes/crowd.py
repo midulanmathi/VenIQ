@@ -71,7 +71,7 @@ def _track_from_static_db(vibe_tags: list[str], recently_played: list[str]) -> d
     }
 
 
-def _pick_track_from_charts(vibe_tags: list[str], recently_played: list[str]) -> dict | None:
+def _pick_track_from_charts(vibe_tags: list[str], recently_played: list[str], preferences: list[str] | None = None) -> dict | None:
     """
     Select a track based on vibe:
     - Study/calm vibes → curated static DB (better quality for focus/ambient)
@@ -85,7 +85,7 @@ def _pick_track_from_charts(vibe_tags: list[str], recently_played: list[str]) ->
     # Energetic/party/happy: mix charts with all-time classics
     use_static = random.random() < 0.30
     if not use_static:
-        genre_id    = pick_genre_for_tags(vibe_tags) if vibe_tags else 0
+        genre_id    = pick_genre_for_tags(vibe_tags, preferences) if vibe_tags else 0
         chart_tracks = fetch_chart_tracks(genre_id, limit=100)
         available   = [t for t in chart_tracks if str(t["id"]) not in played_set]
 
@@ -138,6 +138,7 @@ def analyze():
     coach_message = scene.get("coach_message")
     detected_mode = scene.get("detected_mode")   # only set in auto mode
     vibe_tags     = scene.get("vibe_tags") or []
+    preferences   = data.get("preferences") or []
     threshold     = current_app.config.get("ENERGY_CHANGE_THRESHOLD", 2)
     timestamp     = datetime.utcnow().isoformat() + "Z"
 
@@ -181,7 +182,7 @@ def analyze():
         }
         vibe_tags = emotion_tag_map.get(new_sentiment, ["calm"])
 
-    track = _pick_track_from_charts(vibe_tags, _state["recently_played"])
+    track = _pick_track_from_charts(vibe_tags, _state["recently_played"], preferences)
 
     if track:
         played_key = str(track.get("deezer_id") or f"{track['name']}|{track['artist']}")

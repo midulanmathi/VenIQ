@@ -49,9 +49,10 @@ def override():
         track = data["track"]
 
     elif "sentiment" in data:
-        sentiment  = data["sentiment"]
-        exclude_id = str(data["exclude_id"]) if data.get("exclude_id") else None
-        vibe_tags  = _SENTIMENT_TAGS.get(sentiment, ["upbeat", "feel-good"])
+        sentiment   = data["sentiment"]
+        exclude_id  = str(data["exclude_id"]) if data.get("exclude_id") else None
+        preferences = data.get("preferences") or []
+        vibe_tags   = _SENTIMENT_TAGS.get(sentiment, ["upbeat", "feel-good"])
 
         # Calm / focused: use curated static DB (better study/ambient music than charts)
         if sentiment in ("calm", "focused"):
@@ -81,7 +82,7 @@ def override():
             track = None
 
             if not use_static:
-                genre_id    = pick_genre_for_tags(vibe_tags)
+                genre_id    = pick_genre_for_tags(vibe_tags, preferences)
                 chart_tracks = fetch_chart_tracks(genre_id, limit=100) or fetch_chart_tracks(0, limit=100)
                 if chart_tracks:
                     pool = [t for t in chart_tracks[:30] if exclude_id is None or str(t["id"]) != exclude_id]

@@ -94,6 +94,22 @@ export default function LiveSessionPage() {
     const [eventLog,        setEventLog]        = useState<AnalysisEntry[]>([]);
     const [queue,           setQueue]           = useState<Track[]>([]);
 
+    // Genre preferences — persisted in localStorage, bias song selection
+    const [genrePrefs, setGenrePrefs] = useState<string[]>(() => {
+        try { return JSON.parse(localStorage.getItem("veniq_genre_prefs") || "[]"); }
+        catch { return []; }
+    });
+    const genrePrefsRef = useRef<string[]>(genrePrefs);
+    useEffect(() => { genrePrefsRef.current = genrePrefs; }, [genrePrefs]);
+
+    const toggleGenre = (id: string) => {
+        setGenrePrefs(prev => {
+            const next = prev.includes(id) ? prev.filter(g => g !== id) : [...prev, id];
+            localStorage.setItem("veniq_genre_prefs", JSON.stringify(next));
+            return next;
+        });
+    };
+
     // Countdown to next analysis (seconds)
     const [countdown, setCountdown] = useState(CAPTURE_INTERVAL_MS / 1000);
     useEffect(() => {
@@ -246,7 +262,7 @@ export default function LiveSessionPage() {
                 if (!mood || mood === "None" || mood === "Scanning…") return;
                 try {
                     const excludeId = currentTrackRef.current?.deezer_id ?? currentTrackRef.current?.preview_url ?? undefined;
-                    const next = await overrideSentiment(mood, excludeId);
+                    const next = await overrideSentiment(mood, excludeId, genrePrefsRef.current);
                     if (next) await loadTrackRef.current?.(next);
                 } catch { /* ignore — next interval will retry */ }
             }, 28000);
@@ -318,7 +334,7 @@ export default function LiveSessionPage() {
                     mpCtx = { person_count: p.personCount, hands_raised: p.handsRaisedCount, suggested_mode: p.suggestedMode };
                 }
             }
-            const result = await analyzeFrame(frame, appMode, mpCtx);
+            const result = await analyzeFrame(frame, appMode, mpCtx, genrePrefsRef.current);
             setCurrentMood(result.sentiment ?? "Unknown");
             setCurrentConfidence(result.confidence ?? null);
             setCurrentEnergy(result.energy);
@@ -397,7 +413,7 @@ export default function LiveSessionPage() {
         if (autoNextTimerRef.current) { clearTimeout(autoNextTimerRef.current); autoNextTimerRef.current = null; }
         setIsOverriding(true);
         try {
-            const track = await overrideSentiment(mode);
+            const track = await overrideSentiment(mode, undefined, genrePrefsRef.current);
             if (track) {
                 await loadTrack(track);
                 setCurrentMood(mode);
@@ -861,6 +877,39 @@ export default function LiveSessionPage() {
                         </div>
                     )}
                 </section>
+
+                {/* Genre preferences */}
+                <details className="rounded-lg border border-zinc-800/60 bg-zinc-950/50 text-sm text-zinc-500">
+                    <summary className="cursor-pointer px-4 py-2.5 font-medium text-zinc-400 transition hover:text-zinc-300">
+                        Your taste {genrePrefs.length > 0 && <span className="ml-1 text-violet-400">· {genrePrefs.length} selected</span>}
+                    </summary>
+                    <div className="border-t border-zinc-800/60 px-4 py-3">
+                        <p className="mb-2.5 text-xs text-zinc-500">Select genres you enjoy — VenIQ will bias recommendations toward them.</p>
+                        <div className="flex flex-wrap gap-2">
+                            {([
+                                { id: "electronic", label: "⚡ Electronic" },
+                                { id: "hip-hop",    label: "🎤 Hip-Hop"   },
+                                { id: "pop",        label: "🎵 Pop"       },
+                                { id: "r-n-b",      label: "🎷 R&B"       },
+                                { id: "rock",       label: "🎸 Rock"      },
+                                { id: "classical",  label: "🎹 Classical"  },
+                            ] as const).map(({ id, label }) => (
+                                <button
+                                    key={id}
+                                    type="button"
+                                    onClick={() => toggleGenre(id)}
+                                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                                        genrePrefs.includes(id)
+                                            ? "border-violet-500 bg-violet-950/60 text-violet-200"
+                                            : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-300"
+                                    }`}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </details>
 
                 {/* Collapsed: session log */}
                 <details className="rounded-lg border border-zinc-800/60 bg-zinc-950/50 text-sm text-zinc-500">

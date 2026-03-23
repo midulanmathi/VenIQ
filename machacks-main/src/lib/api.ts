@@ -44,11 +44,12 @@ export async function analyzeFrame(
   imageBase64: string,
   mode: "auto" | "club" | "study" = "auto",
   mediapipe?: MediaPipeContext,
+  preferences?: string[],
 ): Promise<AnalysisEntry> {
   const res = await fetch(`${BASE_URL}/api/crowd/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image_base64: imageBase64, mode, mediapipe }),
+    body: JSON.stringify({ image_base64: imageBase64, mode, mediapipe, preferences }),
   });
   if (!res.ok) throw new Error(`analyze failed: ${res.status}`);
   return res.json();
@@ -65,11 +66,11 @@ export async function clearHistory(): Promise<void> {
   await fetch(`${BASE_URL}/api/crowd/history`, { method: "DELETE" });
 }
 
-export async function overrideSentiment(sentiment: string, excludeId?: string | number): Promise<Track | null> {
+export async function overrideSentiment(sentiment: string, excludeId?: string | number, preferences?: string[]): Promise<Track | null> {
   const res = await fetch(`${BASE_URL}/api/playback/override`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sentiment, exclude_id: excludeId ?? null }),
+    body: JSON.stringify({ sentiment, exclude_id: excludeId ?? null, preferences }),
   });
   if (!res.ok) return null;
   const data = await res.json();

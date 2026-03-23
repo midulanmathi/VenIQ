@@ -122,10 +122,21 @@ _TAG_GENRES: dict[str, list[int]] = {
 }
 
 
-def pick_genre_for_tags(vibe_tags: list[str]) -> int:
+_PREF_GENRE_MAP: dict[str, int] = {
+    "electronic": GENRE_ELECTRONIC,
+    "hip-hop":    GENRE_HIP_HOP,
+    "pop":        GENRE_POP,
+    "r-n-b":      GENRE_RNB,
+    "rock":       GENRE_ROCK,
+    "classical":  GENRE_CLASSICAL,
+}
+
+
+def pick_genre_for_tags(vibe_tags: list[str], preferences: list[str] | None = None) -> int:
     """
     Vote on the best Deezer genre ID for the given vibe_tags.
     Each tag casts weighted votes for its genre list (first genre = 2 pts, rest = 1 pt).
+    User preferences add a +3 bonus to their chosen genres.
     Returns the genre with the highest vote count.
     """
     from collections import Counter
@@ -134,6 +145,11 @@ def pick_genre_for_tags(vibe_tags: list[str]) -> int:
         genres = _TAG_GENRES.get(tag.lower().strip(), [GENRE_POP])
         for i, g in enumerate(genres):
             votes[g] += 2 if i == 0 else 1
+    if preferences:
+        for pref in preferences:
+            genre_id = _PREF_GENRE_MAP.get(pref.lower().strip())
+            if genre_id is not None:
+                votes[genre_id] += 3
     return votes.most_common(1)[0][0] if votes else GENRE_ALL
 
 
