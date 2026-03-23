@@ -83,7 +83,7 @@ export default function LiveSessionPage() {
     const effectiveMode = appMode === "auto" ? (detectedMode ?? "club") : appMode;
     const isStudy       = effectiveMode === "study";
 
-    const [liveDescription, setLiveDescription] = useState("Awaiting session start...");
+    const [liveDescription, setLiveDescription] = useState("Ready to read the room.");
     const [eventLog,        setEventLog]        = useState<AnalysisEntry[]>([]);
     const [queue,           setQueue]           = useState<Track[]>([]);
 
@@ -102,7 +102,7 @@ export default function LiveSessionPage() {
     useEffect(() => {
         if (prevMoodRef.current === currentMood) return;
         prevMoodRef.current = currentMood;
-        if (currentMood === "None" || currentMood === "Analyzing…") return;
+        if (currentMood === "None" || currentMood === "Scanning…") return;
         setMoodFlash(true);
         const t = setTimeout(() => setMoodFlash(false), 700);
         return () => clearTimeout(t);
@@ -252,7 +252,7 @@ export default function LiveSessionPage() {
         const frame = captureFrame();
         if (!frame) return;
         setIsAnalyzing(true);
-        setLiveDescription("Analyzing…");
+        setLiveDescription("Scanning…");
         try {
             const mpCtx = mpFeaturesRef.current
                 ? { ...(mpFeaturesRef.current as import("@/lib/api").MediaPipeContext) }
@@ -270,7 +270,7 @@ export default function LiveSessionPage() {
                 setQueue((prev) => (prev.length < 5 ? prev : prev.slice(0, 4)));
             }
         } catch {
-            setLiveDescription("Backend unreachable. Is the Flask server running?");
+            setLiveDescription("No server signal. Check your connection.");
         } finally {
             setIsAnalyzing(false);
         }
@@ -282,13 +282,13 @@ export default function LiveSessionPage() {
             const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
             setStream(mediaStream);
             setIsSessionActive(true);
-            setLiveDescription("Camera on. First read in a moment…");
+            setLiveDescription("Live. First scan incoming.");
             await clearHistory();
             setEventLog([]);
             setCurrentTrack(null);
             setCoachMessage(null);
             setQueue([]);
-            setCurrentMood("Analyzing…");
+            setCurrentMood("Scanning…");
             hasPlayedRef.current = false;
 
             // Load MediaPipe model for current mode (non-blocking)
@@ -318,7 +318,7 @@ export default function LiveSessionPage() {
         setStream(null);
         setIsSessionActive(false);
         setIsAnalyzing(false);
-        setLiveDescription("Session ended.");
+        setLiveDescription("Session closed.");
         setCurrentMood("None");
         setQueue([]);
         setOverrideLock(null);
@@ -338,7 +338,7 @@ export default function LiveSessionPage() {
                 await loadTrack(track);
                 setCurrentMood(mode);
                 setCurrentEnergy(mode === "party" ? 8 : 3);
-                setLiveDescription(`DJ override: ${mode}. Auto picks paused until you resume.`);
+                setLiveDescription(`Override: ${mode} locked. Auto paused.`);
                 setOverrideLock(mode);
             }
         } finally {
@@ -348,7 +348,7 @@ export default function LiveSessionPage() {
 
     const clearOverride = () => {
         setOverrideLock(null);
-        setLiveDescription("Auto mode resumed.");
+        setLiveDescription("Auto resumed. VenIQ has the wheel.");
     };
 
     useEffect(() => {
@@ -484,7 +484,7 @@ export default function LiveSessionPage() {
                                 className={`h-2 w-2 rounded-full ${isSessionActive ? "animate-pulse bg-red-500" : "bg-zinc-600"}`}
                             />
                             <span className="text-xs font-medium text-zinc-500">
-                                {isAnalyzing ? "Reading room…" : isSessionActive ? (isStudy ? "Lock In · Live" : "Club · Live") : "Camera off"}
+                                {isAnalyzing ? "Scanning…" : isSessionActive ? (isStudy ? "Lock In · Live" : "Club · Live") : "Standby"}
                             </span>
                         </div>
                         <Camera className="h-4 w-4 text-zinc-600" />
@@ -507,7 +507,7 @@ export default function LiveSessionPage() {
                         {!isSessionActive && (
                             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-8 text-center text-zinc-500">
                                 <Camera className="h-10 w-10 opacity-40" />
-                                <p className="max-w-xs text-sm leading-relaxed">Turn on the session to use your webcam.</p>
+                                <p className="max-w-xs text-sm leading-relaxed">Hit Start to read the room.</p>
                             </div>
                         )}
                         {/* Countdown ring — top-left, very subtle */}
@@ -640,7 +640,7 @@ export default function LiveSessionPage() {
                                 <p className="mt-0.5 truncate text-sm font-semibold text-zinc-100">
                                     {currentTrack?.name ?? "—"}
                                 </p>
-                                <p className="truncate text-xs text-zinc-500">{currentTrack?.artist ?? "Waiting for a track"}</p>
+                                <p className="truncate text-xs text-zinc-500">{currentTrack?.artist ?? "On deck soon."}</p>
                             </div>
                         </div>
                     </div>
@@ -735,7 +735,7 @@ export default function LiveSessionPage() {
                                 className="rounded-lg bg-violet-600 px-6 font-semibold text-white hover:bg-violet-500"
                             >
                                 <Play className="mr-2 h-4 w-4 fill-current" />
-                                Start session
+                                Go live
                             </Button>
                         ) : (
                             <Button
@@ -761,7 +761,7 @@ export default function LiveSessionPage() {
                                     }`}
                                 >
                                     <Lock className="mr-2 h-4 w-4" />
-                                    Resume auto ({overrideLock})
+                                    Release · {overrideLock}
                                 </Button>
                             ) : (
                                 <>
@@ -773,7 +773,7 @@ export default function LiveSessionPage() {
                                         className="rounded-lg border-sky-500/30 font-semibold text-sky-200 hover:bg-sky-950/40"
                                     >
                                         <Unlock className="mr-2 h-4 w-4" />
-                                        Calm
+                                        Force calm
                                     </Button>
                                     <Button
                                         type="button"
@@ -783,7 +783,7 @@ export default function LiveSessionPage() {
                                         className="rounded-lg border-fuchsia-500/30 font-semibold text-fuchsia-200 hover:bg-fuchsia-950/40"
                                     >
                                         <Unlock className="mr-2 h-4 w-4" />
-                                        Party
+                                        Force party
                                     </Button>
                                 </>
                             )}
