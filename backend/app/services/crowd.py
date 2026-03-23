@@ -14,6 +14,19 @@ import base64
 import json
 import os
 import random
+import time
+
+
+def _gemini_generate(model, contents, retries: int = 2, backoff: float = 8.0):
+    """Call model.generate_content with simple retry on 429."""
+    for attempt in range(retries):
+        try:
+            return model.generate_content(contents)
+        except Exception as e:
+            if attempt < retries - 1 and "429" in str(e):
+                time.sleep(backoff)
+                continue
+            raise
 
 DEFAULT_SENTIMENT = "calm"
 DEFAULT_ENERGY = 5
@@ -142,7 +155,7 @@ def analyze_auto(image_b64: str, mediapipe: dict | None = None) -> dict:
         import google.generativeai as genai
 
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash-lite")
         image_bytes = base64.b64decode(image_b64)
 
         mp      = mediapipe or {}
@@ -169,8 +182,8 @@ Energy: 1=very still/quiet, 10=dancing/cheering/highly energetic
 Return only the JSON. No markdown."""
         )
 
-        response = model.generate_content(
-            [{"mime_type": "image/jpeg", "data": image_bytes}, prompt]
+        response = _gemini_generate(
+            model, [{"mime_type": "image/jpeg", "data": image_bytes}, prompt]
         )
 
         text = response.text.strip()
@@ -235,7 +248,7 @@ def describe_individual(image_b64: str, mediapipe: dict | None = None) -> dict:
         import google.generativeai as genai
 
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash-lite")
         image_bytes = base64.b64decode(image_b64)
 
         mp      = mediapipe or {}
@@ -256,8 +269,8 @@ Coach guide: focused=affirm, happy=celebrate energy, tired=suggest stretch, stre
 Return only the JSON. No markdown."""
         )
 
-        response = model.generate_content(
-            [{"mime_type": "image/jpeg", "data": image_bytes}, prompt]
+        response = _gemini_generate(
+            model, [{"mime_type": "image/jpeg", "data": image_bytes}, prompt]
         )
 
         text = response.text.strip()
@@ -331,7 +344,7 @@ def _describe_scene(image_b64: str, mediapipe: dict | None = None) -> str:
         import google.generativeai as genai
 
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash-lite")
 
         image_bytes = base64.b64decode(image_b64)
 
@@ -347,8 +360,8 @@ def _describe_scene(image_b64: str, mediapipe: dict | None = None) -> str:
             "Reply with plain text only — no JSON, no labels." + mp_line
         )
 
-        response = model.generate_content(
-            [{"mime_type": "image/jpeg", "data": image_bytes}, prompt]
+        response = _gemini_generate(
+            model, [{"mime_type": "image/jpeg", "data": image_bytes}, prompt]
         )
         return response.text.strip()
 
